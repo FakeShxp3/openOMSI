@@ -117,5 +117,5 @@ jobs:
           # (a release keeps its files; a pull request's test builds are fetched within days)
           retention-days: 14
           name: openOMSI-0.2.32-mouse-fix-windows-${{ matrix.arch }}
-          path: out/*-windows-x64.zip
+          path: dist/windows/
           if-no-files-found: error
