@@ -1,0 +1,123 @@
+# Personal test build based on v0.3.0; artifacts only, no release publication.
+name: Windows 0.3.0 mouse fix
+run-name: Windows 0.3.0 mouse fix
+on:
+  push:
+    branches: [build/windows-0.3.0-mouse-fix]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x64
+    env:
+      OPENOMSI_VERSION: 0.3.0-pr-mouse-fix
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          workspaces: |
+            . -> target
+            launcher/src-tauri -> target
+      - name: Workspace regression tests
+        if: matrix.arch == 'x64'
+        run: cargo test --locked --workspace --no-fail-fast
+      - name: Build
+        shell: cmd
+        run: scripts\build-windows.cmd ${{ matrix.target }}
+      # Microsoft's shader compiler for DirectX 12 (dxcompiler.dll, dxil.dll beside the
+      # program): without it wgpu falls back to the old FXC, which is slow and refuses
+      # some of the game's shaders. DirectX 12 is the way round a Vulkan driver that fails.
+      - name: DirectX shader compiler
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R microsoft/DirectXShaderCompiler --pattern "dxc_*.zip" -D dxc
+          $zip = Get-ChildItem dxc/*.zip | Where-Object { $_.Name -notmatch "linux|pdb" } | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath dxc/x
+          $arch = if ("${{ matrix.arch }}" -eq "arm64") { "arm64" } else { "x64" }
+          Copy-Item "dxc/x/bin/$arch/dxcompiler.dll", "dxc/x/bin/$arch/dxil.dll" dist/windows/
+          Get-ChildItem dist/windows
+      # Google's ANGLE (OpenGL ES over Direct3D 11) for the "ANGLE (DirectX 11)" graphics API:
+      # libEGL.dll and libGLESv2.dll built from ANGLE's own source by
+      # openOMSI-org/angle-openomsi, taken by its release tag and checked against the
+      # SHA-256 recorded here (and the DLLs against the release's own SHA256SUMS). x64 only:
+      # there is no ARM64 build, and the game skips the option without the DLLs.
+      - name: ANGLE (DirectX 11)
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANGLE_TAG: angle-8091-36b74e4dd4
+          ANGLE_SHA256: 1c0086155a17445110dd97400018ca6e72ea245ef178989b457720ee1fba3af5
+        run: |
+          gh release download $env:ANGLE_TAG -R openOMSI-org/angle-openomsi --pattern "*-windows-x64.zip" -D angle
+          $zip = Get-ChildItem angle/*.zip | Select-Object -First 1
+          $have = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLower()
+          if ($have -ne $env:ANGLE_SHA256) { throw "ANGLE zip: SHA-256 $have, expected $env:ANGLE_SHA256" }
+          Expand-Archive $zip.FullName -DestinationPath angle/x
+          $dir = Get-ChildItem angle/x -Directory | Select-Object -First 1
+          foreach ($line in Get-Content (Join-Path $dir.FullName "SHA256SUMS")) {
+            $want, $name = $line -split '\s+\*?', 2
+            $got = (Get-FileHash (Join-Path $dir.FullName $name) -Algorithm SHA256).Hash.ToLower()
+            if ($got -ne $want.ToLower()) { throw "ANGLE ${name}: SHA-256 $got, expected $want" }
+          }
+          Copy-Item (Join-Path $dir.FullName "libEGL.dll"), (Join-Path $dir.FullName "libGLESv2.dll"), (Join-Path $dir.FullName "LICENSE-ANGLE.txt") dist/windows/
+          Get-ChildItem dist/windows
+      - name: ANGLE DirectX 11 startup regression (WARP)
+        if: matrix.arch == 'x64' && github.event_name == 'pull_request'
+        timeout-minutes: 10
+        shell: pwsh
+        env:
+          ANGLE_TEST_LIBRARY_DIRECTORY: ${{ github.workspace }}/dist/windows
+        run: |
+          cargo test --locked --release --target x86_64-pc-windows-msvc -p omsi-render --test angle_startup -- --ignored --nocapture
+      # The Visual C++ runtime beside the program (Microsoft allows it to be shipped
+      # app-locally): without it a PC lacking the Redistributable refused to start the game
+      # ("VCRUNTIME140_1.dll was not found"). It cannot be linked in instead - the OpenXR
+      # loader is built against the DLL runtime.
+      - name: Visual C++ runtime
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\${{ matrix.arch }}\Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue | Sort-Object FullName | Select-Object -Last 1
+          $dir = if ($crt) { $crt.FullName } elseif ("${{ matrix.arch }}" -eq "x64") { "$env:SystemRoot\System32" } else { throw "no ARM64 Visual C++ runtime in $vs" }
+          foreach ($dll in "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll") {
+            Copy-Item (Join-Path $dir $dll) dist/windows/
+          }
+          Get-ChildItem dist/windows
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "openOMSI-$env:OPENOMSI_VERSION-windows-${{ matrix.arch }}"
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item README.md, LICENSE dist/windows/
+          Compress-Archive -Path dist/windows/* -DestinationPath "out/$name.zip"
+      - uses: actions/upload-artifact@v7
+        id: package
+        with:
+          # (a release keeps its files; a pull request's test builds are fetched within days)
+          retention-days: 14
+          name: openOMSI-0.3.0-mouse-fix-windows-${{ matrix.arch }}
+          path: dist/windows/
+          if-no-files-found: error
+      - name: Download link
+        shell: pwsh
+        env:
+          ARTIFACT_URL: ${{ steps.package.outputs.artifact-url }}
+        run: |
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "[Download the Windows 0.3.0 mouse-fix ZIP]($env:ARTIFACT_URL)"
