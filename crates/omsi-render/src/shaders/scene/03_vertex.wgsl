@@ -20,6 +20,7 @@ struct VsOut {
     // where a [matl_envmap] reads its sphere map, made at the vertex (see `sphere_map_uv`)
     @location(7) env_uv: vec2<f32>,
     @location(8) wipe_uv: vec3<f32>,
+    @location(9) @interpolate(flat) reflected_lamps: f32,
 };
 // What the fragment shaders take: VsOut without the invariant on the position. The
 // invariant belongs to the vertex output; on a fragment input naga's GLSL writer turns it
@@ -35,6 +36,7 @@ struct FsIn {
     @location(6) spec_sky: vec3<f32>,
     @location(7) env_uv: vec2<f32>,
     @location(8) wipe_uv: vec3<f32>,
+    @location(9) @interpolate(flat) reflected_lamps: f32,
 };
 
 // Direct3D's D3DTSS_TCI_SPHEREMAP, by which Omsi.exe's environment stage reads the sphere
@@ -254,6 +256,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.spec_sun = sp[0];
     out.spec_sky = sp[1];
     out.env_uv = sphere_map_uv(wp.xyz, out.normal, camera.cam_pos.xyz);
+    out.reflected_lamps = models[e * 4u + 1u].w;
     let pr = inst_params[e * 2u];
     out.uv = in.uv + pr.zw;
     out.params = pr;

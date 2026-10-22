@@ -128,6 +128,7 @@ impl Renderer {
             slot_uv: vec![[0.0; 2]; slots],
             interior: 0.0,
             interior_lamps: 0,
+            reflected_lamps: 0,
             base: 0,
             bounds: InstanceBounds::default(),
             surface: false,
@@ -189,6 +190,7 @@ impl Renderer {
             slot_uv: vec![[0.0; 2]; slots],
             interior: 0.0,
             interior_lamps: 0,
+            reflected_lamps: 0,
             base: 0,
             bounds: InstanceBounds::default(),
             surface: true,
@@ -289,6 +291,16 @@ impl Renderer {
         let i = &mut scene.instances[instance];
         if i.interior_lamps != code {
             i.interior_lamps = code;
+            Self::mark_changed(scene, instance);
+        }
+    }
+
+    /// Interior lamps available to glass reflections, including panes without
+    /// `[illumination_interior]`. This does not change the mesh's diffuse lighting.
+    pub fn set_reflected_lamps(&self, scene: &mut Scene, instance: usize, first: u32, count: u32) {
+        let code = if count == 0 { 0 } else { first * LAMP_CODE_STRIDE + count.min(MAX_LAMPS_PER_MESH) };
+        if scene.instances[instance].reflected_lamps != code {
+            scene.instances[instance].reflected_lamps = code;
             Self::mark_changed(scene, instance);
         }
     }

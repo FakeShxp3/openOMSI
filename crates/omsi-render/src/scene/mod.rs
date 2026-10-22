@@ -134,6 +134,8 @@ pub struct Instance {
     /// first of its run of slots in `Scene::interior_lights` times `LAMP_CODE_STRIDE` plus
     /// how many; 0 = none, `interior` stands in.
     pub interior_lamps: u32,
+    /// Lamps mirrored by Enhanced glass, independent of diffuse illumination assignments.
+    pub reflected_lamps: u32,
     /// First entry of this instance in the per-draw storage buffers (set by `prepare`).
     pub(crate) base: u32,
     /// `[rendertype] presurface`: drawn before terrain, including blended materials whose

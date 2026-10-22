@@ -25,6 +25,8 @@ impl Renderer {
         for (k, a) in i.slot_alpha.iter().enumerate() {
             let mut m = m;
             m[0][3] = draw_order_level(i, k);
+            // Another unused affine component; model_matrix restores its zero.
+            m[1][3] = i.reflected_lamps as f32;
             mats.push(m);
             let uv = i.slot_uv.get(k).copied().unwrap_or([0.0; 2]);
             params.push([*a, vis, uv[0], uv[1]]);

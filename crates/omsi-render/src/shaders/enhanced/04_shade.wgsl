@@ -841,7 +841,13 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // cab's wall, #861) shows no reflection; made up to a quarter opaque by it, the
         // whole rectangle of the sticker mirrored the sky
         let cover = smoothstep(0.0, 0.05, alpha);
-        let refl_rgb = reflection * pre * cover;
+        // Keep this analytic lamp reflection outside the probe/RT replacement: the
+        // point lamps have no emissive geometry for Enhanced+ rays to hit.
+        var interior_glare = vec3<f32>(0.0);
+        if (!capture && own_pane > 0.5) {
+            interior_glare = interior_glass_glare(in.world, n, v, in.reflected_lamps);
+        }
+        let refl_rgb = (reflection * pre + interior_glare) * cover;
         let rl = dot(refl_rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
         // (a pane passes most light: a reflection making it up to 60 % opaque laid a grey
         // veil over the destination display behind the windscreen and the saloon)

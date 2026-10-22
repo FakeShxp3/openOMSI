@@ -140,6 +140,7 @@ impl Renderer {
         self.set_params(scene, instance, &[], false, &[]);
         scene.instances[instance].lod = (0.0, f32::MAX);
         scene.instances[instance].interior_lamps = 0;
+        scene.instances[instance].reflected_lamps = 0;
     }
 
     /// Cut the scene's arrays down to these lengths (their tails are freed slots nothing

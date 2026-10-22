@@ -1454,6 +1454,7 @@ mod coplanar;
 mod instance_layout;
 mod lamp_shadows;
 mod light_grid;
+mod interior_glare;
 mod light_maps;
 mod long_road;
 mod more;

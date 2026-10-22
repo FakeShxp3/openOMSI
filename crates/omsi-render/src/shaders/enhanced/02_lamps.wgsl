@@ -219,3 +219,44 @@ fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool,
     return sum;
 }
 
+
+// Interior lamps are not in the street-light grid. Mirror their positions about the
+// pane, with a finite luminous core and a faint halo instead of diffuse light across
+// the entire window. OMSI supplies point lights, not fixture shapes, so this is an
+// analytic approximation; it cannot reflect the cabin geometry or shadow its fixtures.
+fn interior_glass_glare(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, code: f32) -> vec3<f32> {
+    let night = smoothstep(0.2, 0.9, camera.sun_color.w);
+    if (code < 1.0 || night <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    let c = u32(code + 0.5);
+    let first = c >> 6u;
+    let count = c & 63u;
+    let reflected = reflect(-v, n);
+    let fresnel = f_schlick(vec3<f32>(0.04), max(dot(n, v), 0.0));
+    var sum = vec3<f32>(0.0);
+    for (var i = 0u; i < count; i = i + 1u) {
+        let l = lights[first + i];
+        let d = l.pos.xyz - p;
+        let dist2 = dot(d, d);
+        // Only nearby lamps on the viewer's side of the pane. A smooth distance fade
+        // keeps rear saloon lamps from washing out the driver's view.
+        if (l.color.w <= 0.0 || dist2 < 1e-4 || dist2 >= 36.0 || dot(n, d) <= 0.0) {
+            continue;
+        }
+        let dist = sqrt(dist2);
+        let ld = d / dist;
+        let offset = reflected - ld;
+        let angular2 = dot(offset, offset);
+        // A 12 cm luminous core, plus a weaker spread from imperfect glass.
+        let width2 = 0.0144 / dist2 + 0.0004;
+        let spot = exp(-angular2 / width2);
+        let halo = 0.06 * exp(-angular2 / (width2 * 9.0));
+        let core = max(l.extra.y, 0.01);
+        let strength = min(core * core / dist2, 1.0) * (1.0 - smoothstep(3.0, 6.0, dist));
+        sum = sum + l.color.rgb * l.color.w * strength * (spot + halo);
+    }
+    // Cabin lamps use display-relative brightness, as interior_lamps does; applying
+    // the street's night exposure would blow these small reflections out to white.
+    return sum * fresnel * night * 8.0;
+}

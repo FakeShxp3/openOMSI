@@ -52,13 +52,13 @@ mod tests {
     /// livery's tint above the alpha test, the painted lines' pull and the wet paint's water film, and the player's vehicle
     /// standing between other vehicles' lamps and what lies behind it, and clear vehicle
     /// lamps taking coverage from their active night map, and #3019's larger rain caps, and the tracked panes' snow laid out in the film mesh's own
-    /// metres).
+    /// metres), and interior lamp reflections on Enhanced glass.
     /// (with Unix line ends: a Windows checkout may turn the parts' into CRLF, as it did the
     /// single files', and the 0.2.31 release's Windows test failed on that alone)
     #[test]
     fn assembled_shaders_are_the_old_files() {
         let (scene, enhanced) = (super::SCENE.replace("\r\n", "\n"), super::ENHANCED.replace("\r\n", "\n"));
-        assert_eq!((scene.len(), fnv1a(&scene)), (126_814, 0x40f0_1ac7_0459_3e5b));
-        assert_eq!((enhanced.len(), fnv1a(&enhanced)), (88_225, 0x1839_e9f6_7957_791c));
+        assert_eq!((scene.len(), fnv1a(&scene)), (127_109, 0x5a0a4fe49126f5f0));
+        assert_eq!((enhanced.len(), fnv1a(&enhanced)), (90_573, 0xdbc39c2ea3979c8f));
     }
 }

@@ -367,6 +367,19 @@ pub(crate) fn sync_interior_lamps(
                 }
             }
         }
+        // Reflection sees nearby lamps even when a pane has no diffuse illumination
+        // assignment. Prefer the front lamps if a mod exceeds the per-mesh limit.
+        let mut reflected: Vec<usize> = (0..n).collect();
+        if reflected.len() > omsi_render::MAX_LAMPS_PER_MESH as usize {
+            reflected.sort_by(|&a, &b| {
+                ty.model.interior_lights[b].pos[1].total_cmp(&ty.model.interior_lights[a].pos[1])
+            });
+            reflected.truncate(omsi_render::MAX_LAMPS_PER_MESH as usize);
+            reflected.sort_unstable();
+        }
+        if !distinct.contains(&reflected) {
+            distinct.push(reflected.clone());
+        }
         let total: u32 = distinct.iter().map(|d| d.len() as u32).sum();
         if omsi_cfg::flags::OMSI_DEBUG_INTERIOR.is_set() {
             log::info!("interior lamps of {}: {} lamps, {} instances, {} meshes lit by sets {:?}", ty.def.path.display(), n, render.instances.len(), sets.len(), distinct);
@@ -380,6 +393,11 @@ pub(crate) fn sync_interior_lamps(
         for d in distinct {
             blocks.push((at, d.clone()));
             at += d.len() as u32;
+        }
+        if let Some(b) = blocks.iter().find(|b| b.1 == reflected) {
+            for &instance in &render.instances {
+                renderer.set_reflected_lamps(scene, instance, b.0, reflected.len() as u32);
+            }
         }
         for (i, set) in &sets {
             if let Some(b) = blocks.iter().find(|b| &b.1 == set) {
