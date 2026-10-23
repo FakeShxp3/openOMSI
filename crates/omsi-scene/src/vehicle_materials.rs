@@ -176,6 +176,10 @@ pub(super) fn material_extra(
         specular,
         bump: bump.filter(|b| b.1.is_finite() && b.1 != 0.0),
         glass: false,
+        // The renderer applies this only when slot_extra identifies actual glass.
+        daylight_glass: ov.iter().any(|o| {
+            o.alphascale.as_deref().is_some_and(|v| v.trim().eq_ignore_ascii_case("Envir_Brightness"))
+        }),
         night_switched: false,
         night_alpha: false,
         rain_film: false,
@@ -713,4 +717,25 @@ pub(super) fn slot_overlays_another(mesh: &MeshData, slot: usize) -> bool {
         }
     }
     own.len() >= 3 && own.iter().filter(|k| others.contains(*k)).count() * 10 >= own.len() * 9
+}
+
+#[cfg(test)]
+mod daylight_glass_tests {
+    use super::*;
+
+    #[test]
+    fn only_environment_brightness_marks_daylight_scaled_glass() {
+        for (variable, expected) in [
+            ("Envir_Brightness", true),
+            (" envir_brightness ", true),
+            ("Rain_Window_Front_Wetness", false),
+            ("Dirt_Norm", false),
+            ("window_visible", false),
+        ] {
+            let def = MaterialDef { alphascale: Some(variable.into()), ..Default::default() };
+            let extra = material_extra(&[&def], None, None, [0.0; 4]);
+            assert_eq!(extra.daylight_glass, expected, "{variable}");
+            assert!(!extra.glass, "the slot must still be classified as a pane separately");
+        }
+    }
 }

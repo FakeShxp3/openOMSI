@@ -847,11 +847,22 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         if (!capture && own_pane > 0.5) {
             interior_glare = interior_glass_glare(in.world, n, v, in.reflected_lamps);
         }
-        let refl_rgb = (reflection * pre + interior_glare) * cover;
+        // Daylight-faded glass still exists at night. Use its authored texture mask
+        // for cabin lamps, retaining zero-alpha holes and all other script fades.
+        let daylight_glass = (u32(material.params2.w + 0.5) & 32u) != 0u;
+        let lamp_cover = select(cover, smoothstep(0.0, 0.05, tex.a * material.color.a), daylight_glass);
+        let reflected_lamps = interior_glare * lamp_cover;
+        let refl_rgb = reflection * pre * cover + reflected_lamps;
         let rl = dot(refl_rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
         // (a pane passes most light: a reflection making it up to 60 % opaque laid a grey
         // veil over the destination display behind the windscreen and the saloon)
         var a2 = clamp(alpha + (1.0 - alpha) * clamp(rl * 0.25 + fr.g, 0.0, 0.25) * (1.0 - 0.85 * own_pane) * cover, alpha, 1.0);
+        // With the daylight alpha at zero, an additive reflection still requires
+        // nonzero blend coverage. Keep that coverage small to preserve visibility.
+        let lamp_peak = max(reflected_lamps.r, max(reflected_lamps.g, reflected_lamps.b));
+        if (lamp_peak > 0.0) {
+            a2 = max(a2, 0.001);
+        }
         var c = (rgb * alpha + refl_rgb) / max(a2, 1e-3);
         // the condensation on the player's bus's panes (omsi-app condensation.rs): a film of
         // droplets, each many wavelengths wide, takes twice its shadow out of the light

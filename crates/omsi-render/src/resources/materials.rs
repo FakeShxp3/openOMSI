@@ -169,6 +169,8 @@ pub struct MaterialExtra {
     /// A named transparent window layer. This is separate from envmap/transmap because
     /// stock and add-on buses often use a plain alpha-blended window texture.
     pub glass: bool,
+    /// Glass whose legacy alphascale follows daylight, not its physical presence.
+    pub daylight_glass: bool,
     /// The night map is switched by something other than the time of day - a `[matl_item]`'s
     /// variable, a vehicle mesh's `[visible]`: it glows by day as well (warning lamps,
     /// dashboard displays), not only at night.
@@ -790,13 +792,15 @@ impl Renderer {
                 moisture,
                 // bit 1: a [matl_envmap_mask]; bit 2: a [matl_transmap]; bit 4: a vehicle's
                 // part that may be metal; bit 8: a body, never foliage; bit 16: the active
-                // night texture supplies a clear vehicle material's coverage
+                // night texture supplies a clear vehicle material's coverage; bit 32:
+                // a pane whose legacy alpha follows daylight
                 (if env_mask.is_some() { 1.0 } else { 0.0 })
                     + if extra.transmap_declared || transmap.is_some() { 2.0 } else { 0.0 }
                     + if extra.metal_ok { 4.0 } else { 0.0 }
                     + if extra.solid { 8.0 } else { 0.0 }
                     + if extra.night_alpha && alpha == AlphaMode::Blend && nightmap.is_some()
-                        && !extra.transmap_declared && transmap.is_none() { 16.0 } else { 0.0 },
+                        && !extra.transmap_declared && transmap.is_none() { 16.0 } else { 0.0 }
+                    + if extra.glass && extra.daylight_glass { 32.0 } else { 0.0 },
             ],
             emissive: [emissive[0], emissive[1], emissive[2], if extra.rain_film { 2.0 } else if extra.glass { 1.0 } else if extra.led && extra.led_sign { -3.0 } else if extra.led { -2.0 } else if extra.display { -1.0 } else { 0.0 }],
             specular: extra.specular,

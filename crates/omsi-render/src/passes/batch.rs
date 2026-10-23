@@ -231,7 +231,7 @@ fn opaque_items(scene: &Scene, visible: &[(usize, f32, bool)], exclude_texture: 
 
 /// A phase's blended draws, in the order of `blended_order`, into `items`; the vehicle
 /// the camera is in into `cab_items`.
-fn blended_items(scene: &Scene, keyed: Vec<(u8, f32, usize)>, exclude_texture: Option<TextureId>, items: &mut Vec<DrawItem>, cab_items: &mut Vec<DrawItem>) {
+fn blended_items(scene: &Scene, f: &FrameCtx, keyed: Vec<(u8, f32, usize)>, exclude_texture: Option<TextureId>, items: &mut Vec<DrawItem>, cab_items: &mut Vec<DrawItem>) {
     for (rank, _, i) in keyed {
         let inst = &scene.instances[i];
         let cull = culls_back_faces(scene, inst);
@@ -248,7 +248,12 @@ fn blended_items(scene: &Scene, keyed: Vec<(u8, f32, usize)>, exclude_texture: O
             // original, whose blend takes it out whole; drawn anyway it ran the full
             // shading over the whole windscreen for nothing - a bus's cab view had
             // three or four such screen-sized layers.
-            if mat.alpha == AlphaMode::Blend && inst.slot_alpha.get(*slot as usize).is_some_and(|a| *a < 1.0 / 512.0) {
+            // Envir_Brightness fades the exterior reflection, not the physical pane.
+            // Its cabin-side lamp reflection still needs a draw on an Enhanced night.
+            let cabin_reflection = f.enhanced && inst.reflected_lamps != 0
+                && f.lighting.inside.as_ref().is_some_and(|b| b.0 == inst.origin && point_in_vehicle_box(f.camera.position, b))
+                && (mat.uniform.params2[3] as u32 & 32) != 0;
+            if !cabin_reflection && mat.alpha == AlphaMode::Blend && inst.slot_alpha.get(*slot as usize).is_some_and(|a| *a < 1.0 / 512.0) {
                 continue;
             }
             // Ground blends use the C++ handler's no-write composition;
@@ -379,7 +384,7 @@ impl Renderer {
                 batch_items(scene, &mut items, true, list, &mut main_batches);
                 let keyed = self.blended_order(scene, f, visible, &blended);
                 items.clear();
-                blended_items(scene, keyed, exclude_texture, &mut items, &mut cab_items);
+                blended_items(scene, f, keyed, exclude_texture, &mut items, &mut cab_items);
                 main_draws[1] += items.len();
                 batch_items(scene, &mut items, false, list, &mut main_batches);
             }

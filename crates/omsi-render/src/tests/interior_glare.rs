@@ -4,6 +4,18 @@ use super::*;
 #[test]
 #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
 fn interior_glare_tracks_switches_and_only_affects_enhanced_cabin_glass() {
+    exercise_glare(false, 1.0, 0.1);
+}
+
+#[test]
+#[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+fn interior_glare_survives_daylight_fade_but_not_other_fades_or_empty_masks() {
+    exercise_glare(true, 0.0, 0.1);
+    exercise_glare(false, 0.0, 0.1);
+    exercise_glare(true, 0.0, 0.0);
+}
+
+fn exercise_glare(daylight_glass: bool, fade: f32, authored_alpha: f32) {
     let adapter = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let mut renderer = pollster::block_on(Renderer::new_with(
         &adapter, None, Some(wgpu::TextureFormat::Rgba8UnormSrgb),
@@ -11,9 +23,9 @@ fn interior_glare_tracks_switches_and_only_affects_enhanced_cabin_glass() {
     )).expect("test renderer");
     let mut scene = renderer.new_scene();
     let pane = renderer.add_material_extra(
-        &mut scene, None, AlphaMode::Blend, [0.0, 0.0, 0.0, 0.1], false,
+        &mut scene, None, AlphaMode::Blend, [0.0, 0.0, 0.0, authored_alpha], false,
         None, None, None, None, [0.0; 3],
-        MaterialExtra { glass: true, no_z_write: true, ..Default::default() },
+        MaterialExtra { daylight_glass, glass: true, no_z_write: true, ..Default::default() },
     );
     let mesh = renderer.add_mesh(&mut scene, &MeshData {
         positions: vec![Vec3::new(-1.0, 2.0, -1.0), Vec3::new(1.0, 2.0, -1.0), Vec3::new(1.0, 2.0, 1.0), Vec3::new(-1.0, 2.0, 1.0)],
@@ -21,6 +33,7 @@ fn interior_glare_tracks_switches_and_only_affects_enhanced_cabin_glass() {
         ranges: vec![(0, 6, 0)], indices: vec![0, 1, 2, 0, 2, 3], one_sided: false,
     });
     let instance = renderer.add_instance(&mut scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![pane]);
+    scene.instances[instance].slot_alpha[0] = fade;
     let first = renderer.alloc_interior_lights(&mut scene, 1);
     renderer.set_reflected_lamps(&mut scene, instance, first, 1);
     assert_eq!(scene.instances[instance].interior_lamps, 0, "reflection must not assign diffuse lights");
@@ -39,6 +52,14 @@ fn interior_glare_tracks_switches_and_only_affects_enhanced_cabin_glass() {
     };
     let off = render(&lighting, DVec3::ZERO, 0.0);
     let on = render(&lighting, DVec3::ZERO, 1.0);
+    if authored_alpha == 0.0 || (fade == 0.0 && !daylight_glass) {
+        assert_eq!(off, on, "ordinary fades and empty authored masks must stay invisible");
+        return;
+    }
+    // A ceiling lamp's highlight is above the centre, not at the eye-level test pixel.
+    let overhead = render(&lighting, DVec3::new(0.0, 0.0, 1.0), 1.0);
+    assert!(overhead.chunks_exact(4).zip(off.chunks_exact(4))
+        .any(|(a, b)| a[0] > b[0].saturating_add(10)), "overhead lamp must reflect");
     let pixel = (32 * 64 + 32) * 4;
     assert!(on[pixel] > off[pixel].saturating_add(10), "a nearby lit lamp should reflect");
     let moved = render(&lighting, DVec3::new(0.8, 0.0, 0.0), 1.0);
