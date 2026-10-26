@@ -33,6 +33,7 @@ impl ScheduleSim {
         self.retry_at.clear();
         self.startup.clear();
         self.later_layover.clear();
+        self.tour_hold.clear();
         // Skip directly to the requested date, rather than rebuilding the timetable
         // once for every intervening day (hundreds of reassignments on year jumps).
         if day_time.is_finite() && day_time < self.day_base {
@@ -58,6 +59,12 @@ impl ScheduleSim {
     /// Car `id` runs no departure any more.
     pub fn forget_car(&mut self, id: u64) {
         self.car_departure.remove(&id);
+        self.tour_hold.remove(&id);
+    }
+
+    /// Car `id` stands where it set down until it drives up to its next trip's first stop.
+    pub fn tour_held(&self, id: u64, day_time: f64) -> bool {
+        self.tour_hold.get(&id).is_some_and(|&t| day_time < t)
     }
 
     /// The timetable bus on the road that runs departure `k` (not one that has been let go).
@@ -404,7 +411,7 @@ impl ScheduleSim {
                 self.retry_at.insert(i, day_time + 3.0);
                 self.waiting.push(i);
             }
-            Placed::Drop => {}
+            Placed::Early | Placed::Drop => {}
         }
     }
 

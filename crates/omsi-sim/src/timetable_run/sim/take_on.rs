@@ -60,6 +60,19 @@ impl ScheduleSim {
                 }
             })
             .collect();
+        // a bus whose next trip begins at a stop further on (a terminus that sets down and
+        // takes on at separate stops) stands where it set down until it is time to drive up,
+        // as Omsi.exe's buses do: driving up at once, it held the first stop for its whole
+        // layover and the buses after it queued in the road (#3142)
+        if let Some(&(ri, ss, ..)) = stops.first().filter(|_| !rail) {
+            let drive = route[..ri].iter().map(|&l| net.lanes[l].length()).sum::<f32>() - s0 + ss;
+            let leave_at = departure - (drive / DRIVE_UP_SPEED) as f64 - DRIVE_UP_AHEAD;
+            if drive > STOP_REACH as f32 && day_time < leave_at {
+                self.tour_hold.insert(traffic.cars[ci].id, leave_at);
+                return Placed::Early;
+            }
+        }
+        self.tour_hold.remove(&traffic.cars[ci].id);
         let layover = departure > day_time;
         let n_stops = stops.len();
         traffic.reroute(ci, route, s0, stops, layover);
