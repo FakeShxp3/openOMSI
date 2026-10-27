@@ -1106,9 +1106,9 @@ mod tests {
     fn urls() {
         for (http, ws) in [("https", "wss"), ("http", "ws")] {
             for suffix in ["", "/", "/ws"] {
-                let target = format!("{ws}://westcountry.depart.cloud{suffix}");
-                assert_eq!(ws_url(&target), Some(format!("{ws}://westcountry.depart.cloud/ws")));
-                assert_eq!(http_base(&target), Some(format!("{http}://westcountry.depart.cloud")));
+                let target = format!("{ws}://example.org{suffix}");
+                assert_eq!(ws_url(&target), Some(format!("{ws}://example.org/ws")));
+                assert_eq!(http_base(&target), Some(format!("{http}://example.org")));
             }
             assert_eq!(ws_url(&format!("{ws}://example.org?token=abc#local")), Some(format!("{ws}://example.org/ws?token=abc")));
             assert_eq!(ws_url(&format!("{ws}://example.org/custom/?token=abc")), Some(format!("{ws}://example.org/custom/?token=abc")));
