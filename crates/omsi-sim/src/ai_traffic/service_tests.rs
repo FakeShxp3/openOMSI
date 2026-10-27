@@ -9,13 +9,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A vehicle type with no model and no scripts, in a folder of its own (12 m as a bus,
 /// 4.5 m as a car).
-pub(super) struct Fixture {
+pub(crate) struct Fixture {
     dir: std::path::PathBuf,
-    pub(super) ty: Arc<VehicleType>,
+    pub(crate) ty: Arc<VehicleType>,
 }
 
 impl Fixture {
-    pub(super) fn new() -> Fixture {
+    pub(crate) fn new() -> Fixture {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!("omsi-traffic-service-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir_all(&dir).unwrap();
@@ -37,7 +37,7 @@ const STOP_S: f32 = 300.0;
 const STOP_ID: i64 = 77;
 
 /// One straight road north, 1.5 km long (lane 0), and the road back beside it (lane 1).
-pub(super) fn road(f: &Fixture) -> TrafficSim {
+pub(crate) fn road(f: &Fixture) -> TrafficSim {
     let north = LaneBuilder::arc(DVec3::ZERO, 0.0, 1500.0, 0.0, 0.0, LaneKind::Street, 3.0);
     let south = LaneBuilder::arc(DVec3::new(-3.5, 1500.0, 0.0), 180.0, 1500.0, 0.0, 0.0, LaneKind::Street, 3.0);
     let mut net = Network { lanes: vec![north, south], ..Default::default() };
