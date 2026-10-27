@@ -112,6 +112,7 @@ pub mod tunnel;
 pub mod official;
 pub mod hostkey;
 mod host_ports;
+mod discovery;
 pub mod remote_text;
 pub use remote_text::is_fingerprint;
 
@@ -1584,7 +1585,7 @@ impl LanSession {
         match parse_join(target)? {
             JoinTarget::Discover => match Self::discover(DEFAULT_PORT, name, world, wait) {
                 Ok(Some(s)) => Ok(s),
-                Ok(None) => Err(format!("no host answered on the local network within {:.0} s (is a session hosted? a firewall may block UDP port {DEFAULT_PORT})", wait.as_secs_f32())),
+                Ok(None) => Err(format!("no host answered on the local network within {:.0} s (is a session hosted? a firewall may block UDP ports {DEFAULT_PORT}-{})", wait.as_secs_f32(), DEFAULT_PORT + PORT_RANGE - 1)),
                 Err(e) => Err(format!("searching the network failed: {e}")),
             },
             JoinTarget::Direct { addrs, session, protocol } => {
@@ -1610,24 +1611,7 @@ impl LanSession {
         socket.set_read_timeout(Some(Duration::from_millis(200)))?;
         let started = Instant::now();
         let mut buf = [0u8; 1024];
-        // the limited broadcast, the loopback (a host on this machine, on any port of its
-        // range), and this machine's own subnet broadcast (macOS does not always route
-        // 255.255.255.255)
-        let mut targets: Vec<SocketAddr> = vec![SocketAddr::from(([255, 255, 255, 255], port))];
-        for p in port..port.saturating_add(PORT_RANGE) {
-            targets.push(SocketAddr::from(([127, 0, 0, 1], p)));
-        }
-        // every subnet of this machine (a Hamachi or ZeroTier network carries broadcasts too)
-        for a in addrs::joinable_addresses() {
-            let b = a.broadcast.unwrap_or_else(|| {
-                let o = a.ip.octets();
-                Ipv4Addr::new(o[0], o[1], o[2], 255)
-            });
-            let t = SocketAddr::from((b, port));
-            if !targets.contains(&t) {
-                targets.push(t);
-            }
-        }
+        let targets = discovery::targets(port, addrs::joinable_addresses());
         let msg = format!("DISCOVER|{PROTOCOL}");
         while started.elapsed() < wait {
             for t in &targets {

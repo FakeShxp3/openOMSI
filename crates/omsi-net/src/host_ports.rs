@@ -21,7 +21,7 @@ pub(super) fn bind(port: u16) -> io::Result<(UdpSocket, Option<TcpListener>)> {
     let port = listener.local_addr()?.port();
     let udp =
         udp_socket(port).map_err(|e| io::Error::new(e.kind(), format!("UDP port {port}: {e}")))?;
-    verify_loopback(&listener)?;
+    verify_loopback(&listener).map_err(probe_error)?;
     Ok((udp, Some(listener)))
 }
 
@@ -75,6 +75,25 @@ fn verify_loopback(listener: &TcpListener) -> io::Result<()> {
             ));
         }
         std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+// A refused connection or failed handshake means this candidate did not reach
+// our listener. Retry another port, but do not hide socket resource exhaustion.
+fn probe_error(error: io::Error) -> io::Error {
+    match error.kind() {
+        io::ErrorKind::ConnectionRefused
+        | io::ErrorKind::ConnectionReset
+        | io::ErrorKind::ConnectionAborted
+        | io::ErrorKind::NotConnected
+        | io::ErrorKind::TimedOut
+        | io::ErrorKind::WouldBlock
+        | io::ErrorKind::UnexpectedEof
+        | io::ErrorKind::BrokenPipe => io::Error::new(
+            io::ErrorKind::AddrInUse,
+            format!("TCP loopback probe failed: {error}"),
+        ),
+        _ => error,
     }
 }
 
@@ -162,6 +181,28 @@ impl LanSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loopback_connection_failures_allow_the_next_candidate() {
+        for kind in [
+            io::ErrorKind::ConnectionRefused,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::NotConnected,
+            io::ErrorKind::TimedOut,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::UnexpectedEof,
+            io::ErrorKind::BrokenPipe,
+        ] {
+            assert_eq!(
+                probe_error(io::Error::from(kind)).kind(),
+                io::ErrorKind::AddrInUse
+            );
+        }
+        for kind in [io::ErrorKind::OutOfMemory, io::ErrorKind::Other] {
+            assert_eq!(probe_error(io::Error::from(kind)).kind(), kind);
+        }
+    }
 
     #[test]
     fn ephemeral_retries_spread_beyond_one_exclusion_block() {
