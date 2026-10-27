@@ -15977,7 +15977,7 @@ _version: 2
   hi: "आखिरी स्टॉप"
   zh-tw: "終點站"
   sv: "Sluthållplats"
-  sr: "Konačna stanica"
+  sr: "Poslednja stanica"
   ka: "ბოლო გაჩერება"
 "Finish":
   ca: "Finalitza"
@@ -43257,7 +43257,7 @@ _version: 2
   sv: "Programmet openomsi som tjänsterna startar. Om fältet lämnas tomt används det bredvid startprogrammet."
   ca: "El programa openomsi que inicia els serveis. Si ho deixes buit, es fa servir el que hi ha al costat del llançador."
   fr: "Le programme openomsi que lancent les services. S'il est vide, celui à côté du lanceur."
-  sr: "U openomsi programu dužnosti počinju. Ostavljen prazan, onaj pored lansera."
+  sr: "U openomsi programu dužnosti počinju. Ostavljen prazan, onaj pored pokretača."
   pt: "O programa openomsi que executa as escalas. Se ficar vazio, é usado o que está ao lado do launcher."
   pt-pt: "O programa openomsi que executa as escalas. Se ficar vazio, é usado o que está ao lado do launcher."
   ka: "openomsi პროგრამა, რომლითაც რეისები იწყება. თუ ცარიელია, გამოიყენება გამშვების გვერდით მდებარე."
@@ -48155,7 +48155,7 @@ _version: 2
   zh: "将从 GitHub 下载 openOMSI {version} 并替换此版本，随后启动器会重新启动。你的模组、设置和存档都会保持原样。"
   hi: "openOMSI {version} GitHub से डाउनलोड होकर इस वर्ज़न की जगह लेगा; फिर लॉन्चर दोबारा शुरू होगा। आपके मॉड, सेटिंग्स और सेव जैसे हैं वैसे ही रहेंगे।"
   ca: "openOMSI {version} es baixa de GitHub i ocupa el lloc d'aquesta versió; després el launcher es reinicia. Els teus mods, ajustos i partides desades es queden tal com són."
-  sr: "openOMSI {version} se preuzima sa GitHub-a i zauzima mesto ove verzije; lanser zatim ponovo pokreće. Vaši modovi, podešavanja i sačuvani podaci ostaju onakvi kakvi jesu."
+  sr: "openOMSI {version} se preuzima sa GitHub-a i zauzima mesto ove verzije; pokretač zatim ponovo pokreće. Vaši modovi, podešavanja i sačuvani podaci ostaju onakvi kakvi jesu."
   ka: "openOMSI {version} ჩამოიტვირთება GitHub-იდან და ჩაანაცვლებს ამ ვერსიას; შემდეგ გამშვები თავიდან გაეშვება. თქვენი მოდები, პარამეტრები და შენახვები უცვლელი რჩება."
 
 "Update checks are turned off so that this version stays. To come back, choose the latest version in this list, or download it from GitHub if openOMSI {version} does not have this list yet.":
@@ -54982,7 +54982,7 @@ _version: 2
   hi: "लॉन्चर विश्राम कर रहा है"
   ca: "El llançador està en repòs"
   sv: "Startprogrammet vilar"
-  sr: "Lanser miruje"
+  sr: "Pokretač miruje"
   ka: "გამშვები ისვენებს"
 
 "A game is running: the launcher leaves the graphics card to it and wakes up when the game ends.":
@@ -58109,7 +58109,7 @@ _version: 2
   pt: "A nova versão está no lugar; o launcher reiniciará em instantes."
   ca: "La versió nova ja està instal·lada; el llançador es reiniciarà d'aquí a un moment."
   fr: "La nouvelle version est installée, le lanceur redémarre dans un instant..."
-  sr: "Nova verzija je postavljena; lanser se ponovo pokreće za trenutak."
+  sr: "Nova verzija je postavljena; pokretač se ponovo pokreće za trenutak."
   ru: "Новая версия установлена; лаунчер перезапустится через мгновение."
   de: "Die neue Version wird eingesetzt; der Launcher startet gleich neu."
   pt-pt: "A nova versão está a ser instalada; o launcher reinicia dentro de momentos."
