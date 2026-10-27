@@ -572,8 +572,8 @@ pub fn share_mods(args: &mut LanConfig, lan: &mut LanSession) {
             if !args.server {
                 crate::mods::upload::accept(crate::mods::upload::a_hosting_game_takes_uploads());
             }
-            if let (Some(port), Some(key)) = (lan.local_addr().map(|a| a.port()), lan.host_key()) {
-                crate::mods::serve(port, key, &mod_source(args));
+            if let (Some(listener), Some(key)) = (lan.take_mods_listener(), lan.host_key()) {
+                crate::mods::serve(listener, key, &mod_source(args));
             }
         }
         Role::Client => {

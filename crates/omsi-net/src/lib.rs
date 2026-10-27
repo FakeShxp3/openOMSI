@@ -111,6 +111,7 @@ mod ws_http;
 pub mod tunnel;
 pub mod official;
 pub mod hostkey;
+mod host_ports;
 pub mod remote_text;
 pub use remote_text::is_fingerprint;
 
@@ -1389,6 +1390,7 @@ pub struct LanSession {
     /// The code as a bridge over the internet (see `bridge`): STUN, UPnP, the rendezvous.
     bridge: Option<bridge::Bridge>,
     host_key: Option<std::sync::Arc<hostkey::HostKey>>,
+    host_mods: Option<std::net::TcpListener>,
     /// Players who went lately (host): (nonce, name, id, when). One who comes back soon
     /// keeps their number and is "back", not a newcomer.
     gone_lately: Vec<(Option<u64>, String, u32, Instant)>,
@@ -1514,6 +1516,7 @@ impl LanSession {
             world_received: 0,
             bridge: None,
             host_key: None,
+            host_mods: None,
             gone_lately: Vec::new(),
             banned: Vec::new(),
             hw_bans: Vec::new(),
@@ -1523,38 +1526,6 @@ impl LanSession {
             commands: Vec::new(),
             clock_speed: 1.0,
         }
-    }
-
-    /// Host a session on `port` (all interfaces). With `try_next` the next few ports are
-    /// tried when that one is taken (another session runs on this machine).
-    pub fn host(
-        port: u16,
-        name: &str,
-        world: WorldInfo,
-        try_next: bool,
-    ) -> std::io::Result<LanSession> {
-        let mut last_err = None;
-        let tries = if try_next { PORT_RANGE } else { 1 };
-        for p in port..port.saturating_add(tries) {
-            match UdpSocket::bind(("0.0.0.0", p)) {
-                Ok(socket) => {
-                    socket.set_nonblocking(true)?;
-                    socket.set_broadcast(true)?;
-                    let mut s = LanSession::new(socket, Role::Host, name, world);
-                    let key = std::sync::Arc::new(hostkey::HostKey::generate().ok_or_else(|| std::io::Error::other("no key for the session"))?);
-                    s.session = key.session();
-                    s.bridge = bridge::Bridge::start(true, s.session, Some(key.clone()), local_addrs(p), p);
-                    s.host_key = Some(key);
-                    log::info!("LAN: hosting session {} on port {p} as '{name}' (protocol {PROTOCOL}), code {}", session_hex(s.session), s.code().map(|c| c.encode()).unwrap_or_default());
-                    if p != port {
-                        log::info!("LAN: port {port} is taken (another session on this machine?), using {p}");
-                    }
-                    return Ok(s);
-                }
-                Err(e) => last_err = Some(e),
-            }
-        }
-        Err(last_err.unwrap_or_else(|| std::io::Error::other("no port")))
     }
 
     /// Join the host at one of `addrs` (tried all at once); `session` is the id from a
