@@ -239,6 +239,7 @@ impl ScheduleSim {
                 .collect();
             for &id in &gone {
                 self.car_departure.remove(&id);
+                self.tour_hold.remove(&id);
                 self.running.retain(|r| r.car != id);
             }
             return gone;
@@ -343,6 +344,7 @@ impl ScheduleSim {
         }
         // buses whose ground was unloaded under them wait for it to come back
         for id in std::mem::take(&mut traffic.removed_scheduled) {
+            self.tour_hold.remove(&id);
             if let Some(i) = self.car_departure.remove(&id) {
                 log::debug!("departure {i}: its bus left the loaded tiles, waiting for them");
                 self.waiting.push(i);
@@ -351,6 +353,7 @@ impl ScheduleSim {
         if self.car_departure.len() > 64 + traffic.cars.len() * 2 {
             let alive: std::collections::HashSet<u64> = traffic.cars.iter().map(|c| c.id).collect();
             self.car_departure.retain(|id, _| alive.contains(id));
+            self.tour_hold.retain(|id, _| alive.contains(id));
         }
         // tiles brought lanes, or half a minute went by: the waiting departures may be on
         // loaded ground now, and the routes that stopped short may go on
