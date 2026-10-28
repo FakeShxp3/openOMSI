@@ -6,4 +6,8 @@ MIT source credit: Mayconrib808/OpenOmsi-BBS, 0.3.45-coop.15-2.2.1.8.
 - Detects a matching approaching bus within 60 m; does not change actual boarding or AI decisions.
 - Enhanced/procedural human rig only, with look and wrist/arm IK; original OMSI animation is untouched.
 - No new network packets or assets; default-OFF path exits without scanning buses for passengers.
-- Known limitation: mirrored remote people do not get a host-transmitted service intent, so hailing is local-only until networking is reviewed. Windows gameplay / Rust tests still required.
+- Known limitation: mirrored remote people do not get a host-transmitted service intent, so hailing is local-only until networking is reviewed. Windows gameplay, before/after captures and low-end GPU/frame-time measurements still required before leaving Draft.
+
+The original MIT copyright and permission notice are retained in [MAYCON-LICENSE.txt](MAYCON-LICENSE.txt). Source: https://github.com/Mayconrib808/OpenOmsi-BBS.
+
+Review: synthetic simulation tests cover approach filtering, out-of-service buses, unchanged boarding intent, procedural IK, finite poses and wrist timing. Settings are covered across native/launcher writers and launcher restart. With the option off, snapshots skip the bus search and temporary buffer; the pose path skips the gesture work. This is source-level performance evidence, not an FPS benchmark.

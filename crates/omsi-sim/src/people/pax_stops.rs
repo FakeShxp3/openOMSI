@@ -36,6 +36,7 @@ impl PeopleSim {
         let heading = s.heading.to_radians();
         let forward = DVec2::new(heading.sin(), heading.cos());
         buses.iter().filter(|b| {
+            if matches!(b.takes, Takes::Nobody) { return false; }
             let d = b.pos - s.pos;
             if !Self::visual_hail_range(d,forward) || (b.pos-self.people[i].position).length_squared()>60.0*60.0
                 || b.fwd().dot(forward) <= 0.0 || b.served.is_some_and(|id| id != stop) { return false; }
