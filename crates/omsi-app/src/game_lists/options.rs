@@ -12,6 +12,7 @@ pub(super) fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "speed" => s.time_speed as f32,
         "traffic" => app.session.traffic.as_ref()?.target as f32,
         "pax" => s.pax_density,
+        "passenger_transfer_percent" => s.passenger_transfer_percent,
         "volume" => s.volume,
         "led_glow" => s.led_glow as f32,
         "night_brightness" => s.night_brightness,
@@ -107,6 +108,11 @@ pub(super) fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option
         "pax" => {
             app.settings.pax_density = v;
             Some(("pax_density", v.to_string()))
+        }
+        "passenger_transfer_percent" => {
+            if !v.is_finite() { return None; }
+            app.settings.passenger_transfer_percent = v.round().clamp(0.0, 100.0);
+            Some(("passenger_transfer_percent", app.settings.passenger_transfer_percent.to_string()))
         }
         "volume" => {
             app.settings.volume = v;
@@ -396,6 +402,7 @@ fn set_cab_wheel_rotation(app: &mut App, v: f32) -> (&'static str, String) {
 pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
     let s = &app.settings;
     Some(match id {
+        "passenger_connections" => s.passenger_connections,
         "navigator" => if app.vr_active() { app.vr_nav_profile().enabled } else { app.menus.navigator.as_ref().is_some_and(|n| n.enabled) },
         "nav_ai" => app.menus.navigator.as_ref().map_or(s.nav_ai, |n| n.show_ai),
         "nav_surface" => app.menus.navigator.as_ref().map_or(s.nav_surface, |n| n.show_surface),
@@ -496,6 +503,7 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
 pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String)> {
     let bit = (on as u8).to_string();
     match id {
+        "passenger_connections" => { app.settings.passenger_connections = on; Some(("passenger_connections", bit)) },
         "navigator" => {
             if app.vr_active() {
                 if app.vr_nav_profile().enabled != on { app.vr_nav_adjust("enabled", 1.0); }
