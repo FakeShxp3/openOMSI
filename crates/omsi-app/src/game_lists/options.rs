@@ -112,6 +112,11 @@ pub(super) fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option
         "passenger_transfer_percent" => {
             if !v.is_finite() { return None; }
             app.settings.passenger_transfer_percent = v.round().clamp(0.0, 100.0);
+            if let Some(h) = app.session.humans.as_mut() {
+                h.transfer_percent = if app.net.lan.is_none() && app.settings.passenger_connections {
+                    app.settings.passenger_transfer_percent
+                } else { 0.0 };
+            }
             Some(("passenger_transfer_percent", app.settings.passenger_transfer_percent.to_string()))
         }
         "volume" => {
@@ -503,7 +508,15 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
 pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String)> {
     let bit = (on as u8).to_string();
     match id {
-        "passenger_connections" => { app.settings.passenger_connections = on; Some(("passenger_connections", bit)) },
+        "passenger_connections" => {
+            app.settings.passenger_connections = on;
+            if let Some(h) = app.session.humans.as_mut() {
+                h.transfer_percent = if on && app.net.lan.is_none() {
+                    app.settings.passenger_transfer_percent
+                } else { 0.0 };
+            }
+            Some(("passenger_connections", bit))
+        },
         "navigator" => {
             if app.vr_active() {
                 if app.vr_nav_profile().enabled != on { app.vr_nav_adjust("enabled", 1.0); }

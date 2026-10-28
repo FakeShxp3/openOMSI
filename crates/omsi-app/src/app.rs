@@ -596,6 +596,10 @@ impl App {
                         h.set_lan_seed(lan::population_seed(lan));
                     }
                     h.exact_fare = self.settings.exact_fare;
+                    // Until owner handoff is validated, connections are single-player only.
+                    h.transfer_percent = if self.net.lan.is_none() && self.settings.passenger_connections {
+                        self.settings.passenger_transfer_percent
+                    } else { 0.0 };
                     h.bad_driving = self.settings.pax_bad_driving;
                     h.boarding = self.settings.boarding.clone();
                     h.stand_chance = self.settings.standing_chance;

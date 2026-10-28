@@ -423,6 +423,9 @@ fn new_humans(
         // the map's camera they filled the whole pool, and the players met nobody)
         h.players_only = args.server.is_some() && player.is_none();
         h.exact_fare = settings.exact_fare;
+        h.transfer_percent = if args.server.is_none() && args.lan_join.is_none() && settings.passenger_connections {
+            settings.passenger_transfer_percent
+        } else { 0.0 };
         h.bad_driving = settings.pax_bad_driving;
         h.boarding = settings.boarding.clone();
         h.stand_chance = settings.standing_chance;
