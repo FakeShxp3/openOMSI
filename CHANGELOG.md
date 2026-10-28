@@ -511,6 +511,8 @@ promoted to stable releases (see [docs/VERSIONING.md](docs/VERSIONING.md)); the 
 
 ### Fixes
 
+- **The map camera (F4) puts the bus down facing where it looks.** Moving the bus there kept the way
+  it faced before, whichever way the camera was turned; it now stands facing the camera's direction.
 - **The launcher starts as it did in 0.3.41.** 0.3.42 made the launcher write a pointer file beside its
   program and copy data folders at start, and some antivirus programs and browsers took that for
   harmful behaviour and blocked the download or the program. That change (the data folder choice
