@@ -43257,7 +43257,6 @@ _version: 2
   sv: "Programmet openomsi som tjänsterna startar. Om fältet lämnas tomt används det bredvid startprogrammet."
   ca: "El programa openomsi que inicia els serveis. Si ho deixes buit, es fa servir el que hi ha al costat del llançador."
   fr: "Le programme openomsi que lancent les services. S'il est vide, celui à côté du lanceur."
-  sr: "U openomsi programu dužnosti počinju. Ostavljen prazan, onaj pored pokretača."
   pt: "O programa openomsi que executa as escalas. Se ficar vazio, é usado o que está ao lado do launcher."
   pt-pt: "O programa openomsi que executa as escalas. Se ficar vazio, é usado o que está ao lado do launcher."
   ka: "openomsi პროგრამა, რომლითაც რეისები იწყება. თუ ცარიელია, გამოიყენება გამშვების გვერდით მდებარე."
@@ -48155,7 +48154,7 @@ _version: 2
   zh: "将从 GitHub 下载 openOMSI {version} 并替换此版本，随后启动器会重新启动。你的模组、设置和存档都会保持原样。"
   hi: "openOMSI {version} GitHub से डाउनलोड होकर इस वर्ज़न की जगह लेगा; फिर लॉन्चर दोबारा शुरू होगा। आपके मॉड, सेटिंग्स और सेव जैसे हैं वैसे ही रहेंगे।"
   ca: "openOMSI {version} es baixa de GitHub i ocupa el lloc d'aquesta versió; després el launcher es reinicia. Els teus mods, ajustos i partides desades es queden tal com són."
-  sr: "openOMSI {version} se preuzima sa GitHub-a i zauzima mesto ove verzije; pokretač zatim ponovo pokreće. Vaši modovi, podešavanja i sačuvani podaci ostaju onakvi kakvi jesu."
+  sr: "openOMSI {version} se preuzima sa GitHub-a i zauzima mesto ove verzije; pokretač se zatim ponovo pokreće. Vaši modovi, podešavanja i sačuvani podaci ostaju onakvi kakvi jesu."
   ka: "openOMSI {version} ჩამოიტვირთება GitHub-იდან და ჩაანაცვლებს ამ ვერსიას; შემდეგ გამშვები თავიდან გაეშვება. თქვენი მოდები, პარამეტრები და შენახვები უცვლელი რჩება."
 
 "Update checks are turned off so that this version stays. To come back, choose the latest version in this list, or download it from GitHub if openOMSI {version} does not have this list yet.":
