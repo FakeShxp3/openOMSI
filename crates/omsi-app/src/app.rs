@@ -597,7 +597,7 @@ impl App {
                     }
                     h.exact_fare = self.settings.exact_fare;
                     // Until owner handoff is validated, connections are single-player only.
-                    h.transfer_percent = if self.net.lan.is_none() && self.settings.passenger_connections {
+                    h.transfer_percent = if self.args.passenger_connections_allowed(self.net.lan.is_some()) && self.settings.passenger_connections {
                         self.settings.passenger_transfer_percent
                     } else { 0.0 };
                     h.bad_driving = self.settings.pax_bad_driving;

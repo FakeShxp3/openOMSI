@@ -109,16 +109,7 @@ pub(super) fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option
             app.settings.pax_density = v;
             Some(("pax_density", v.to_string()))
         }
-        "passenger_transfer_percent" => {
-            if !v.is_finite() { return None; }
-            app.settings.passenger_transfer_percent = v.round().clamp(0.0, 100.0);
-            if let Some(h) = app.session.humans.as_mut() {
-                h.transfer_percent = if app.net.lan.is_none() && app.settings.passenger_connections {
-                    app.settings.passenger_transfer_percent
-                } else { 0.0 };
-            }
-            Some(("passenger_transfer_percent", app.settings.passenger_transfer_percent.to_string()))
-        }
+        "passenger_transfer_percent" => set_connection_percent(app, v),
         "volume" => {
             app.settings.volume = v;
             Some(("volume", v.to_string()))
@@ -464,6 +455,7 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "cloud_shadows" => s.cloud_shadows,
         "light_glow" => s.light_glow,
         "windy_trees" => s.windy_trees,
+        "road_snow" => s.road_snow,
         "mirror_hud_every_frame" => s.mirror_hud_every_frame,
         "mirror_shadows" => s.mirror_shadows,
         "mirror_particles" => s.mirror_particles,
@@ -511,7 +503,7 @@ pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static 
         "passenger_connections" => {
             app.settings.passenger_connections = on;
             if let Some(h) = app.session.humans.as_mut() {
-                h.transfer_percent = if on && app.net.lan.is_none() {
+                h.transfer_percent = if on && app.args.passenger_connections_allowed(app.net.lan.is_some()) {
                     app.settings.passenger_transfer_percent
                 } else { 0.0 };
             }
@@ -792,6 +784,8 @@ fn toggle_set_graphics_and_controls(app: &mut App, id: &str, on: bool, bit: Stri
             app.settings.windy_trees = on;
             Some(("windy_trees", bit))
         }
+        // (the next picture tells the road snow, see `picture_lighting`)
+        "road_snow" => { app.settings.road_snow = on; Some(("road_snow", bit)) }
         "mirror_hud_every_frame" => { app.settings.mirror_hud_every_frame = on; Some(("mirror_hud_every_frame", bit)) }
         "mirror_shadows" => { app.settings.mirror_shadows = on; Some(("mirror_shadows", bit)) }
         "mirror_particles" => { app.settings.mirror_particles = on; Some(("mirror_particles", bit)) }
@@ -983,4 +977,15 @@ pub(crate) fn option_do(app: &mut App, verb: &str, arg: &str, mv: Move) -> bool 
         return true;
     }
     false
+}
+
+fn set_connection_percent(app: &mut App, value: f32) -> Option<(&'static str, String)> {
+    if !value.is_finite() { return None; }
+    app.settings.passenger_transfer_percent = value.round().clamp(0.0, 100.0);
+    if let Some(humans) = app.session.humans.as_mut() {
+        humans.transfer_percent = if app.args.passenger_connections_allowed(app.net.lan.is_some()) && app.settings.passenger_connections {
+            app.settings.passenger_transfer_percent
+        } else { 0.0 };
+    }
+    Some(("passenger_transfer_percent", app.settings.passenger_transfer_percent.to_string()))
 }

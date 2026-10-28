@@ -3,6 +3,21 @@
 use super::*;
 use super::pax_stops::entry_on_platform;
 
+// A direct connection must have loaded walking ground all the way, not just a clear ray
+// above a fence. Keep unsupported stairs/gaps out until actual pavement routing is added.
+fn connection_walkable(from: DVec3, to: DVec3, height: impl Fn(f64, f64, f64) -> Option<f64>) -> bool {
+    if !from.is_finite() || !to.is_finite() || (to - from).length_squared() > 80.0 * 80.0 { return false; }
+    let steps = ((to - from).truncate().length() / 2.0).ceil().clamp(1.0, 40.0) as usize;
+    let mut z = from.z;
+    for step in 1..=steps {
+        let point = from.lerp(to, step as f64 / steps as f64);
+        let Some(next) = height(point.x, point.y, z) else { return false; };
+        if !next.is_finite() || (next - z).abs() > 0.6 || (next - point.z).abs() > 1.0 { return false; }
+        z = next;
+    }
+    (z - to.z).abs() <= 0.6
+}
+
 impl PeopleSim {
     /// sub_62e42c: a new task and what it starts with.
     pub fn set_task(&mut self, i: usize, t: Task, buses: &[BusNow], bus_ix: &HashMap<BusId, usize>, world: &dyn World) {
@@ -567,7 +582,7 @@ impl PeopleSim {
         if p.ticket == TICKET_STAMP {
             if p.sub == 1 && p.timer < 0.5 {
                 // the validator stamps
-                self.stamped.push(bn.id);
+                self.stamped.push((bn.id, p.stamper));
                 let pp = self.pax_mut(i).unwrap();
                 pp.sub = 2;
                 pp.reach = false;
@@ -676,14 +691,16 @@ impl PeopleSim {
     fn try_connection(&mut self, i: usize, at: DVec3, heading: f64, from_stop: Option<i64>, from_bus: BusId,
         buses: &[BusNow], bus_ix: &HashMap<BusId, usize>, world: &dyn World) -> bool {
         let percent = self.transfer_percent;
+        if percent <= 0.0 || !percent.is_finite() || from_stop.is_none() { return false; }
         let count = self.pax(i).map_or(0, |p|p.transfer_count);
-        if percent <= 0.0 || !percent.is_finite() || count >= 2 || from_stop.is_none() { return false; }
+        if count >= 2 { return false; }
         if self.rand_f() * 100.0 >= percent.clamp(0.0,100.0) as f64 {
             if from_bus == BusId::Player { log::info!("Passenger connection: chance_percent={percent:.0} outcome=not_drawn"); }
             return false;
         }
         let mut candidates: Vec<_> = self.stops.iter().filter_map(|(id,s)| {
             if (s.pos.z-at.z).abs() > 2.0 || (s.pos-at).length_squared() > 80.0*80.0 { return None; }
+            if !connection_walkable(at, s.gather, |x, y, z| world.walk_height_near(x, y, z)) { return None; }
             if world.collision().ray_blocked(at+DVec3::Z*0.9,s.gather+DVec3::Z*0.9,0.1,0.6) { return None; }
             let serves = |bn: &BusNow, dest: &str, terms: &HashSet<String>| {
                 !matches!(bn.takes,Takes::Nobody)
@@ -710,8 +727,8 @@ impl PeopleSim {
                     });
                     if !other_service { continue; }
                 }
-                if !ready && self.due_dests.as_ref().is_some_and(|d|
-                    d.get(id).is_none_or(|set|!set.contains(dest.trim()))) { continue; }
+                if !ready && !self.due_dests.as_ref().is_some_and(|d|
+                    d.get(id).is_some_and(|set|set.contains(dest.trim()))) { continue; }
                 choices.push((dest.clone(),line,f64::from(*weight),ready));
             }
             if choices.is_empty() { return None; }
@@ -820,3 +837,7 @@ pub fn away_point(door: DVec3, out: DVec3, along: DVec3, id: u32) -> DVec3 {
     let r = |k: u32| (id.wrapping_mul(2_654_435_761).wrapping_add(k.wrapping_mul(40_503)) % 1000) as f64 / 1000.0;
     door + out * (2.5 + 2.5 * r(1)) + along * (14.0 * r(2) - 7.0)
 }
+
+#[cfg(test)]
+#[path = "connection_tests.rs"]
+mod connection_tests;

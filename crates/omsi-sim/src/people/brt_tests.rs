@@ -1,7 +1,7 @@
 //! Synthetic regressions for platform registration and actual boarding targets.
 use super::*;
 
-fn setup(name: &str, trailer: Option<f32>) -> (PeopleSim, BusNow) {
+pub(crate) fn setup(name: &str, trailer: Option<f32>) -> (PeopleSim, BusNow) {
     let dir = std::env::temp_dir().join(format!("omsi-brt-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     for (file, text) in [

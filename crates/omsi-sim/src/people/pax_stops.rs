@@ -271,4 +271,4 @@ impl PeopleSim {
 
 #[cfg(test)]
 #[path = "brt_tests.rs"]
-mod brt_tests;
+pub(crate) mod brt_tests;
