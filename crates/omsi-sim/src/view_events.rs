@@ -265,6 +265,9 @@ pub struct PersonFrame {
     pub facts: crate::people::PoseFacts,
     /// The state's name (`OMSI_TRACE_PAX`).
     pub state: &'static str,
+    /// Optional visual target of an approaching compatible bus.
+    pub hail_target: Option<glam::DVec3>,
+    pub hail_moving: bool,
     /// `OMSI_CHECK_TPOSE`: the person's label and state, and a passenger's details.
     pub debug: Option<[String; 2]>,
 }
@@ -278,7 +281,13 @@ impl crate::people::PeopleSim {
         out.eye = self.eye;
         out.buses = self.last_buses.clone();
         out.people.clear();
-        out.people.extend(self.people.iter().map(|p| PersonFrame {
+        // Do not scan the bus list for every passenger if the feature is off.
+        let hail = if self.visual_hailing {
+            self.people.iter().enumerate().map(|(i,_)|
+                self.visual_hail_bus(i, &self.last_buses).and_then(|(bus,moving)|
+                    self.last_buses.iter().find(|b|b.id==bus).map(|b|(b.pos,moving)))).collect::<Vec<_>>()
+        } else { vec![None; self.people.len()] };
+        out.people.extend(self.people.iter().enumerate().map(|(i,p)| PersonFrame {
             id: p.id,
             ty: p.ty.clone(),
             position: p.position,
@@ -293,6 +302,8 @@ impl crate::people::PeopleSim {
             hidden: self.avatar_hidden.get(&p.id).copied(),
             facts: p.pose_facts(),
             state: p.state.name(),
+            hail_target: hail[i].map(|x|x.0),
+            hail_moving: hail[i].is_some_and(|x|x.1),
             debug: debug.then(|| {
                 let pax = match &p.state {
                     crate::people::State::Pax(x) => format!("pax_state {} speed {:.2} seat_h {:.2} room {:.2} st {}", x.pax_state, x.speed, x.seat_h, x.room, x.st),
