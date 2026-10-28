@@ -116,7 +116,7 @@ impl Font {
                 if c.is_whitespace() {
                     self.space_width()
                 } else {
-                    self.glyph(c).map(|g| (g.x1 - g.x0).max(0)).unwrap_or(0)
+                    self.glyph(c).map(|g| (g.x1 - g.x0).max(0)).unwrap_or(self.space_width())
                 }
             })
             .sum();
@@ -199,7 +199,7 @@ impl FontAtlas {
                 let w = if ch.is_whitespace() {
                     self.font.space_width()
                 } else {
-                    self.font.glyph(ch).map(|g| (g.x1 - g.x0).max(0)).unwrap_or(0)
+                    self.font.glyph(ch).map(|g| (g.x1 - g.x0).max(0)).unwrap_or(self.font.space_width())
                 };
                 w + self.font.gap
             })
@@ -257,7 +257,7 @@ impl FontAtlas {
                 continue;
             }
             let Some(g) = self.font.glyph(ch) else {
-                x += self.font.gap;
+                x += self.font.space_width() + self.font.gap;
                 continue;
             };
             let gw = (g.x1 - g.x0).max(0);
