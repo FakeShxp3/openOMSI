@@ -602,28 +602,30 @@ impl PeopleView {
             } else {
                 omsi_sim::human::slots_from_omsi(&p.anim.bones(&ty.omsi))
             };
-            // Visual hailing is independent from passenger boarding and AI logic.
-            // Only an explicitly enabled natural-animation pose may alter the rig.
-            let asking = enhanced && !p.puppet && p.hidden.is_none()
-                && matches!(p.place, Place::Ground)
-                && p.hail_moving && p.hail_target.is_some()
-                && (p.position - camera).length_squared() < 300.0 * 300.0;
-            // One short acknowledgement of a full bus, not continuous waving.
-            if p.hail_target.is_none() { st.full_gate = Default::default(); }
-            let asking = asking && p.hail_full && p.hail_bus.is_some_and(|id|
-                st.full_gate.allow(id, true, true, dt));
-            st.hail_strength += ((if asking { 1.0 } else { 0.0 }) - st.hail_strength)
-                .clamp(-dt * 2.8, dt * 2.8);
-            if !enhanced { st.hail_strength = 0.0; }
-            let wave = st.hail_wrist.advance(st.hail_strength > 0.001, dt, p.id);
-            if st.hail_strength > 0.001 && enhanced && !p.puppet {
-                let torso = omsi_sim::human::slot_of(omsi_sim::human::BONE_MAIN).unwrap();
-                let waiting_forward = bones[torso].transform_vector3(Vec3::Y);
-                let target = p.hail_target.and_then(|bus|
-                    omsi_sim::human::hail_look_target(p.position, p.heading, bus));
-                st.hail_look.advance(&ty.rig, &mut bones, target, st.hail_strength, dt);
-                omsi_sim::human::accessory_hail_arm(
-                    &ty.rig, &mut bones, 1, waiting_forward, st.hail_strength, wave);
+            if p.hail_target.is_some() || st.hail_strength > 0.001 {
+                // Visual hailing is independent from passenger boarding and AI logic.
+                // Only an explicitly enabled natural-animation pose may alter the rig.
+                let asking = enhanced && !p.puppet && p.hidden.is_none()
+                    && matches!(p.place, Place::Ground)
+                    && p.hail_moving && p.hail_target.is_some()
+                    && (p.position - camera).length_squared() < 300.0 * 300.0;
+                // One short acknowledgement of a full bus, not continuous waving.
+                let reaction_allowed = p.hail_bus.is_some_and(|id|
+                    st.full_gate.allow(id, p.hail_full, asking && p.hail_full, dt));
+                let asking = asking && p.hail_full && reaction_allowed;
+                st.hail_strength += ((if asking { 1.0 } else { 0.0 }) - st.hail_strength)
+                    .clamp(-dt * 2.8, dt * 2.8);
+                if !enhanced { st.hail_strength = 0.0; }
+                let wave = st.hail_wrist.advance(st.hail_strength > 0.001, dt, p.id);
+                if st.hail_strength > 0.001 && enhanced && !p.puppet {
+                    let torso = omsi_sim::human::slot_of(omsi_sim::human::BONE_MAIN).unwrap();
+                    let waiting_forward = bones[torso].transform_vector3(Vec3::Y);
+                    let target = p.hail_target.and_then(|bus|
+                        omsi_sim::human::hail_look_target(p.position, p.heading, bus));
+                    st.hail_look.advance(&ty.rig, &mut bones, target, st.hail_strength, dt);
+                    omsi_sim::human::accessory_hail_arm(
+                        &ty.rig, &mut bones, 1, waiting_forward, st.hail_strength, wave);
+                }
             }
             // an avatar's face near the eye: blinks, looks, expressions, the lips
             // (from the camera the picture is drawn from: a face is seen from there)

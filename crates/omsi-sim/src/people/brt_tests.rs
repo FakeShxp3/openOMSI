@@ -309,3 +309,53 @@ fn brt_boarding_reservation_respects_script_disabled_seats_and_reachable_groups(
     assert_eq!(h.pax(0).unwrap().task, Task::WalkingToBus);
     assert!(bus.cabin.entries[h.pax(0).unwrap().door.unwrap()].side < 0.0);
 }
+
+#[test]
+fn optional_hailing_is_cosmetic_and_ignores_out_of_service_buses() {
+    let (mut h, mut bus) = setup("optional-hail", None);
+    h.pax_mut(0).unwrap().task = Task::WaitingForBus;
+    h.pax_mut(0).unwrap().line = Some(0);
+    h.stops.get_mut(&42).unwrap().lines = vec![("Elsewhere".into(), ["Elsewhere".into()].into_iter().collect())];
+    bus.pos = DVec3::new(-4.0, -20.0, 0.0);
+    bus.speed = 4.0;
+    let before = (h.people[0].position, h.pax(0).unwrap().task, h.pax(0).unwrap().bus);
+    assert_eq!(h.visual_hail_bus(0, std::slice::from_ref(&bus)), Some((bus.id, true)));
+    assert_eq!((h.people[0].position, h.pax(0).unwrap().task, h.pax(0).unwrap().bus), before);
+    bus.takes = Takes::Nobody;
+    assert_eq!(h.visual_hail_bus(0, std::slice::from_ref(&bus)), None);
+}
+
+#[test]
+fn full_bus_snapshot_counts_standing_and_disabled_places() {
+    let (mut h, mut bus) = setup("optional-full", None);
+    h.visual_full_bus_reaction = true;
+    h.pax_mut(0).unwrap().task = Task::WaitingForBus;
+    h.pax_mut(0).unwrap().line = Some(0);
+    h.stops.get_mut(&42).unwrap().lines = vec![("Elsewhere".into(), ["Elsewhere".into()].into_iter().collect())];
+    bus.pos = DVec3::new(-4.0, -20.0, 0.0);
+    bus.speed = 4.0;
+    let mut standing = bus.cabin.seats[0].clone();
+    standing.seated = false;
+    standing.height = 0.0;
+    Arc::get_mut(&mut bus.cabin).unwrap().seats.push(standing);
+    h.seats.insert(bus.id, vec![true, false]);
+    h.last_buses = Arc::new(vec![bus.clone()]);
+    let mut frame = crate::view_events::PeopleFrame::default();
+    h.snapshot_into(&mut frame);
+    assert!(!frame.people[0].hail_full, "a standing place is still available");
+    h.seats.get_mut(&bus.id).unwrap()[1] = true;
+    h.snapshot_into(&mut frame);
+    assert!(frame.people[0].hail_full);
+    bus.places_off = vec![false, true];
+    h.last_buses = Arc::new(vec![bus.clone()]);
+    h.seats.get_mut(&bus.id).unwrap()[1] = false;
+    h.snapshot_into(&mut frame);
+    assert!(frame.people[0].hail_full, "script-disabled places do not add capacity");
+    bus.places_off = vec![true, true];
+    h.last_buses = Arc::new(vec![bus]);
+    h.snapshot_into(&mut frame);
+    assert!(!frame.people[0].hail_full, "zero known capacity is not proof of a full bus");
+    h.visual_full_bus_reaction = false;
+    h.snapshot_into(&mut frame);
+    assert!(frame.people[0].hail_target.is_none());
+}
