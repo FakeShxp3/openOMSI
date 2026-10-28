@@ -367,4 +367,23 @@ mod tests {
         let image = atlas.render("@A@A@A@A@A@A@A@A@", 1, 48, false, [255, 255, 255]);
         assert!(lit(&image, 1) && !lit(&image, 0));
     }
+
+    #[test]
+    fn invalid_char_renders_as_space() {
+        let font = Font {
+            path: PathBuf::new(),
+            name: "LCD_Test".into(),
+            bitmap: "lcd.bmp".into(),
+            alpha: "lcd_alpha.bmp".into(),
+            height: 10,
+            gap: 1,
+            chars: vec![
+                FontChar { ch: '|', x0: 0, x1: 2, y: 0 },
+                FontChar { ch: '0', x0: 2, x1: 10, y: 0 },
+                FontChar { ch: '1', x0: 10, x1: 18, y: 0 },
+                FontChar { ch: ' ', x0: 18, x1: 28, y: 0 },
+            ],
+        };
+        assert_eq!(font.text_width("0x1"), font.text_width("0 1"))
+    }
 }
