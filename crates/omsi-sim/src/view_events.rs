@@ -265,6 +265,11 @@ pub struct PersonFrame {
     pub facts: crate::people::PoseFacts,
     /// The state's name (`OMSI_TRACE_PAX`).
     pub state: &'static str,
+    /// Optional visual target of an approaching compatible bus.
+    pub hail_target: Option<glam::DVec3>,
+    pub hail_moving: bool,
+    pub hail_bus: Option<crate::people::BusId>,
+    pub hail_full: bool,
     /// `OMSI_CHECK_TPOSE`: the person's label and state, and a passenger's details.
     pub debug: Option<[String; 2]>,
 }
@@ -278,7 +283,32 @@ impl crate::people::PeopleSim {
         out.eye = self.eye;
         out.buses = self.last_buses.clone();
         out.people.clear();
-        out.people.extend(self.people.iter().map(|p| PersonFrame {
+        // Cabin seats include both seated and standing [passpos] places; subtract
+        // scripted disabled places. Unknown/zero capacity is NOT proof of a full bus.
+        let mut full = hashbrown::HashMap::new();
+        if self.visual_full_bus_reaction {
+            let mut aboard: hashbrown::HashMap<crate::people::BusId,usize> = hashbrown::HashMap::new();
+            for person in &self.people {
+                if let crate::people::Place::Bus(id,_) = person.place {
+                    *aboard.entry(id).or_default() += 1;
+                }
+            }
+            for bus in &self.last_buses {
+                let capacity = bus.cabin.seats.iter().enumerate()
+                    .filter(|(i,_)|!bus.places_off.get(*i).copied().unwrap_or(false)).count();
+                let reserved = self.seats.get(&bus.id).map_or(0,|seats|seats.iter().enumerate()
+                    .filter(|(i,used)|**used && !bus.places_off.get(*i).copied().unwrap_or(false)).count());
+                let at_capacity = capacity > 0 &&
+                    reserved.max(aboard.get(&bus.id).copied().unwrap_or(0)) >= capacity;
+                full.insert(bus.id, at_capacity);
+            }
+        }
+        let hail = if self.visual_full_bus_reaction {
+            self.people.iter().enumerate().map(|(i,_)|
+                self.visual_hail_bus(i, &self.last_buses).and_then(|(bus,moving)|
+                    self.last_buses.iter().find(|b|b.id==bus && full.get(&bus).copied()==Some(true)).map(|b|(bus,b.pos,moving)))).collect::<Vec<_>>()
+        } else { vec![None; self.people.len()] };
+        out.people.extend(self.people.iter().enumerate().map(|(i,p)| PersonFrame {
             id: p.id,
             ty: p.ty.clone(),
             position: p.position,
@@ -293,6 +323,10 @@ impl crate::people::PeopleSim {
             hidden: self.avatar_hidden.get(&p.id).copied(),
             facts: p.pose_facts(),
             state: p.state.name(),
+            hail_target: hail[i].map(|x|x.1),
+            hail_moving: hail[i].is_some_and(|x|x.2),
+            hail_bus: hail[i].map(|x|x.0),
+            hail_full: hail[i].is_some(),
             debug: debug.then(|| {
                 let pax = match &p.state {
                     crate::people::State::Pax(x) => format!("pax_state {} speed {:.2} seat_h {:.2} room {:.2} st {}", x.pax_state, x.speed, x.seat_h, x.room, x.st),
