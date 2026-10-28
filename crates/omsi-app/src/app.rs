@@ -596,6 +596,8 @@ impl App {
                         h.set_lan_seed(lan::population_seed(lan));
                     }
                     h.exact_fare = self.settings.exact_fare;
+                    h.visual_full_bus_reaction = self.settings.passenger_full_bus_reaction
+                        && self.settings.passenger_animation == "enhanced";
                     h.bad_driving = self.settings.pax_bad_driving;
                     h.boarding = self.settings.boarding.clone();
                     h.stand_chance = self.settings.standing_chance;
