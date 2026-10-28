@@ -266,11 +266,10 @@ impl AiBody {
                 inertia[j] = spring[i] / 38.0f32.powi(2);
             }
         }
-        // fix: the heave had no such limit and the dampers none at all. a trams or a ships
-        // `achse_feder` / `achse_daempfer` of 5000 (Mainz's GT6M, Schiff1) gave c/m of ~3300/s,
-        // the 5 ms steps of `settle` blew up (vpitch -3.7e9, then vz inf, then NaN) and the
-        // car and its rear section went to NaN - which took the players bus with it on
-        // contact (#3161). reproduced with OMSI_SEED on Mainz line 69, the car at NaN 60 s in
+        // The heave as well: a tram's or a ship's `achse_feder` / `achse_daempfer` of 5000
+        // (Mainz's GT6M, Schiff1) gave c/m of ~3300/s, the 5 ms steps of `settle` ran away
+        // (vz inf, then NaN) and the car and its rear section went to NaN - which took the
+        // player's bus with it on contact (#3161).
         spring[0] = spring[0].min(mass * 38.0f32.powi(2));
         // at least 0.8 of critical damping in every mode: a driven car settles after a
         // bump or a stop instead of swinging on (the files' dampers are tuned for the

@@ -840,7 +840,7 @@ impl RigidBody {
             }
         }
         let inside = self.spawned_inside.clone().unwrap_or_default();
-        let before = self.position;
+        let start_position = self.position;
         for _ in 0..4 {
             let me = self.body_box(bb);
             let mut deepest: Option<(usize, crate::collision::Contact)> = None;
@@ -849,10 +849,9 @@ impl RigidBody {
                     continue;
                 }
                 let Some(c) = me.contact(o) else { continue };
-                // fix: an obstacle with no number (its box at NaN) gave a NaN depth that no
-                // test here threw out, the push put the bus at NaN after the step's own guard
-                // and the next step kept it there - black screen, game running (game.log:
-                // "bus at (NaN, NaN, NaN)" right when an AI bus spawned on the same spot)
+                // An obstacle with no number (its box at NaN) gives a NaN depth that no test
+                // here throws out: the push put the bus at NaN after the step's own guard, and
+                // the next step kept it there - a black picture with the game running (#3161).
                 if !(c.depth.is_finite() && c.normal.is_finite() && c.point.is_finite()) {
                     static ONCE: std::sync::Once = std::sync::Once::new();
                     ONCE.call_once(|| log::warn!("vehicle physics: obstacle {i} (id {}) touches with no number (centre {:?}, heading {}); left out", o.id, o.center, o.heading));
@@ -944,7 +943,7 @@ impl RigidBody {
         if !(self.position.is_finite() && self.velocity.is_finite() && self.omega.is_finite()) {
             static ONCE: std::sync::Once = std::sync::Once::new();
             ONCE.call_once(|| log::warn!("vehicle physics: a crash put the body at no number; it stays where it was, at rest"));
-            self.position = before;
+            self.position = start_position;
             (self.velocity, self.omega) = (Vec3::ZERO, Vec3::ZERO);
             impacts.clear();
         }
