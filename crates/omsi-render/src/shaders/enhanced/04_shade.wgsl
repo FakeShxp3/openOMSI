@@ -497,6 +497,12 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     let nv = clamp(mix(face_v, dot(n, v), face_w), 1e-4, 1.0);
     // (how wide a patch of the surface the pixel covers, m: see `relief_masking`)
     let relief_footprint = length(dpdx(in.world)) + length(dpdy(in.world));
+    // The same depth-aware traced sample feeds the sun, AO and the debug view. Repeating
+    // rt_at here and inside ao_gi_at overflowed the optimizer's stack in the DX12 FXC
+    // fallback (used when dxcompiler.dll cannot be loaded); DXC compiles either form.
+    // Read it once after the early material returns, with the same taps and their order,
+    // so that the fallback can compile fs_enhanced too.
+    let surface_rt = rt_at(in.clip.xy, in.world);
     // --- the sun
     let s = camera.sun_dir.xyz;
     let nl = dot(n, s);
@@ -516,7 +522,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         } else if (nl > 0.0 || thin) {
             // Enhanced+: the traced shadow where there is one for this surface
             // (whose cut-out leaves and fences the shadow map holds alone: see `render_inner`)
-            let traced = rt_at(in.clip.xy, in.world);
+            let traced = surface_rt;
             shadow = sun_shadow_soft(in.world, n, thin);
             if (traced.w > 0.5 && traced.z >= 0.0) {
                 shadow = shadow * traced.z;
@@ -577,7 +583,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     var ao = 1.0;
     var bounce = vec3<f32>(0.0);
     if (camera.clouds.w > 0.5 && !capture) {
-        let ag = ao_gi_at(in.clip.xy, in.world);
+        let ag = ao_gi_at(in.clip.xy, in.world, surface_rt);
         ao = ag.x;
         bounce = ag.yzw;
     }
@@ -866,7 +872,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         var dc = vec3<f32>(0.0);
         switch dm {
             case 1: {
-                let tr = rt_at(in.clip.xy, in.world);
+                let tr = surface_rt;
                 let sm = sun_shadow_soft(in.world, n, thin);
                 dc = select(vec3<f32>(sm), vec3<f32>(tr.z * sm, tr.z * sm, tr.z * 0.6 + 0.4), tr.w > 0.5 && tr.z >= 0.0);
             }
