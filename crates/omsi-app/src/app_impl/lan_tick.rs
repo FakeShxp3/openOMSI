@@ -6,6 +6,7 @@ impl App {
     /// LAN play, once a frame: send our bus, take in the others', and keep a drawn
     /// vehicle for each of them.
     pub(crate) fn tick_lan(&mut self, dt: f32) {
+        if self.net.lan.is_none() { omsi_lan::commands::set_speed_limit_kmh(0); }
         let walker = self.walker_pose();
         let radio_keyed = self.voice_radio_keyed();
         let Some(lan) = self.net.lan.as_mut() else {
@@ -23,6 +24,9 @@ impl App {
             }
             return;
         };
+        if lan.role == omsi_net::Role::Client && lan.connected && self.perf.total_frames % 180 == 0 {
+            lan.command(1, "speed-limit?");
+        }
         self.gfx.sim_view.lan.capture_freetex(self.player.as_ref(), &self.args.root);
         let duty = self
             .session.duty
@@ -142,6 +146,15 @@ impl App {
                 }
             }
             // what the session allows of voice chat: asked of the host, told by it
+            Command::SpeedLimitAsked => {
+                if let Some(l) = self.net.lan.as_mut().filter(|l| l.role == omsi_net::Role::Host) {
+                    l.command(from, &format!("speed-limit {}", omsi_lan::server_cfg::server_speed_limit_kmh()));
+                }
+            }
+            Command::SpeedLimit(limit) => {
+                omsi_lan::commands::set_speed_limit_kmh(limit);
+                log::info!("LAN: server RP speed limit: {limit} km/h (0 = off)");
+            }
             Command::VoiceAsked => {
                 let range = self.settings.voice_range;
                 if let Some(l) = self.net.lan.as_mut().filter(|l| l.role == omsi_net::Role::Host) {

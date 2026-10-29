@@ -340,6 +340,11 @@ pub fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &mut Ser
             lan.set_voice_listener(from);
             lan.command(from, &policy)
         }
+        "speed-limit?" => {
+            if lan.peers().any(|p| p.pose.id == from && p.has_info) {
+                lan.command(from, &format!("speed-limit {}", crate::server_cfg::server_speed_limit_kmh()));
+            }
+        }
         "auth?" => {
             if !adm.enabled() {
                 lan.command(from, "admin-no");
