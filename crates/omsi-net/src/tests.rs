@@ -1519,3 +1519,5 @@ mod connections;
 mod lifecycle;
 mod traffic;
 mod voice;
+
+mod join_rejections;

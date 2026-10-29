@@ -2365,10 +2365,27 @@ impl LanSession {
     /// Why nobody may have answered, for the player.
     fn no_answer(&self, after: Duration) -> String {
         let tried: Vec<String> = self.candidates.iter().map(|a| a.to_string()).collect();
-        let port = self.candidates.first().map(|a| a.port()).unwrap_or(DEFAULT_PORT);
-        if self.refused >= 2 && self.candidates.len() == 1 {
+        let mut ports: Vec<_> = self.candidates.iter().map(|a| a.port()).collect();
+        if ports.is_empty() {
+            ports.push(DEFAULT_PORT);
+        }
+        ports.sort_unstable();
+        ports.dedup();
+        let first = ports[0];
+        let last = ports[ports.len() - 1];
+        let ports = if first == last {
+            format!("port {first}")
+        } else if usize::from(last - first) + 1 == ports.len() {
+            format!("ports {first}-{last}")
+        } else {
+            format!("ports {}", ports.iter().map(u16::to_string).collect::<Vec<_>>().join(", "))
+        };
+        let one_machine = self.candidates.first().is_some_and(|first| {
+            self.candidates.iter().all(|candidate| candidate.ip() == first.ip())
+        });
+        if self.refused >= 2 && one_machine {
             return format!(
-                "the address {} answers, but no session runs on port {port} there - check the port, or whether the host has started its game",
+                "the address {} answers, but no session runs on {ports} there - check the port, or whether the host has started its game",
                 self.candidates[0].ip()
             );
         }
@@ -2376,7 +2393,7 @@ impl LanSession {
             return format!("the host did not answer (another computer did: {r})");
         }
         format!(
-            "no answer from {} within {:.0} s. Is the session still running, and was the whole code copied? The host's firewall must let the game receive UDP on port {port} (on Windows allow it for public networks too). If both of you are behind a mobile or carrier network that changes the port for every connection, the way cannot be opened: the host can forward UDP port {port} on the router, or you both use a VPN",
+            "no answer from {} within {:.0} s. Is the session still running, and was the whole code copied? The host's firewall must let the game receive UDP on {ports} (on Windows allow it for public networks too). If both of you are behind a mobile or carrier network that changes the port for every connection, the way cannot be opened: the host can forward UDP {ports} on the router, or you both use a VPN",
             tried.join(" or "),
             after.as_secs_f32()
         )
@@ -2602,10 +2619,12 @@ impl LanSession {
                 ("CHALLENGE", Role::Client) if self.host == Some(from) || (self.host.is_none() && self.candidates.contains(&from)) => self.on_challenge(&parts),
                 ("REJECT", Role::Client) if self.host.is_none() || Some(from) == self.host => {
                     let reason = clean_text(field(&parts, 2), 300);
-                    // One of several addresses tried at once may belong to another computer
-                    // (a LAN address like ours in the friend's house): its "no" is kept for
-                    // the message, but the others may still answer.
-                    if self.host.is_none() && self.candidates.len() > 1 {
+                    // Different candidate IPs may belong to different computers. Keep
+                    // trying those, but a refusal from the one machine whose ports we
+                    // are scanning is final, just like an explicit-port refusal.
+                    if self.host.is_none()
+                        && self.candidates.iter().any(|candidate| candidate.ip() != from.ip())
+                    {
                         if self.other_reject.is_none() {
                             log::info!("LAN: {from} turned us away ({reason}); still trying the host's other addresses");
                         }
