@@ -111,6 +111,16 @@ impl App {
             self.receive_passenger_door_request(from, request);
             return;
         }
+        // Player-hosted sessions have no dedicated RBAC roles or server.cfg teleport policy.
+        // Keep their historical host-only behavior instead of accepting arbitrary client moves.
+        if text.starts_with("tp-request ") {
+            if let Some(l) = self.net.lan.as_mut().filter(|l| l.role == omsi_net::Role::Host) {
+                if l.peers().any(|p| p.pose.id == from && p.has_info) {
+                    l.command(from, "admin-result 0 rejected self-teleport requires a dedicated server with administrator authentication");
+                }
+            }
+            return;
+        }
         // a plugin's message to the same plugin here (`lan.send`)
         if self.plugin_lan_message(from, text) {
             return;
