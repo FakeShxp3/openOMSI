@@ -96,13 +96,22 @@ struct SettingsPage: View {
     private var graphics: some View {
         let mode = store.setting("graphics")?.string ?? "vanilla_plus"
         let classic = mode == "vanilla"
-        let traced = mode == "enhanced_plus"
         let enhanced = mode.hasPrefix("enhanced")
+        // (Real-Time Ray Tracing is a switch of Enhanced; a file of the days of Enhanced+ names it as a mode)
+        let traced = enhanced && (mode == "enhanced_plus" || store.flag("ray_tracing", false))
         return Card("Graphics") {
-            SettingSelect(label: "Graphics", key: "graphics", options: [("vanilla", "Vanilla (as OMSI 2)"), ("vanilla_plus", "Vanilla+"), ("enhanced", "Enhanced"), ("enhanced_plus", "Enhanced+")])
+            SettingSelect(label: "Graphics", key: "graphics", options: [("vanilla", "Vanilla (as OMSI 2)"), ("vanilla_plus", "Vanilla+"), ("enhanced", "Enhanced")])
+            if enhanced {
+                SettingToggle(label: "Real-Time Ray Tracing", key: "ray_tracing", fallback: false)
+            }
             PresetRow(mode: mode)
             OptimiseBlock()
             SettingSelect(label: "Anti-aliasing", key: "msaa", options: Choices.msaa, heavy: { $0 == "8" && !traced })
+            SettingSelect(label: "Upscaling", key: "upscaler", options: [("default", "Standard (Catmull-Rom)"), ("fsr1", "AMD FSR 1 (experimental)")])
+            if store.setting("upscaler")?.string == "fsr1" {
+                SettingSelect(label: "FSR quality", key: "fsr_quality", options: [("ultra", "Ultra Quality (77%)"), ("quality", "Quality (67%)"), ("balanced", "Balanced (59%)"), ("performance", "Performance (50%)"), ("auto", "Automatic (keeps the frame rate)"), ("custom", "Use render scale")])
+                SettingSlider(label: "FSR sharpness", key: "fsr_sharpness", range: 0 ... 1, step: 0.05, fallback: 0.8) { "\(Int($0 * 100))%" }
+            }
             SettingSelect(label: "Render scale", key: "render_scale", options: Choices.renderScale)
             SettingSelect(label: "Anisotropic", key: "anisotropy", options: [("1", "Off"), ("2", "2x"), ("4", "4x"), ("8", "8x"), ("16", "16x")])
             if !classic {
@@ -120,17 +129,28 @@ struct SettingsPage: View {
                 SettingSlider(label: "LED mip strength", key: "led_mips", range: 0 ... 4, step: 0.05, fallback: 1.3) { $0 < 0.005 ? off : String(format: "%.2f", $0) }
             }
             SettingToggle(label: "OMSI's shadow meshes (under vehicles)", key: "shadow_blobs", fallback: true)
-            if !traced { SettingSlider(label: "Reflection maps (paint, chrome, glass)", key: "reflections", range: 0 ... 1, step: 0.05, fallback: 1) { $0 < 0.005 ? off : pct($0) } }
+            if !traced { SettingSlider(label: "Reflective objects reflect", key: "reflections", range: 0 ... 1, step: 0.05, fallback: 1) { $0 < 0.005 ? off : pct($0) } }
             SettingToggle(label: "Clouds", key: "clouds", fallback: true)
             if enhanced && store.flag("clouds", true) {
                 SettingSelect(label: "Cloud quality", key: "cloud_quality", options: Choices.cloudQuality)
             }
             SettingSelect(label: "Rain quality", key: "rain_quality", options: Choices.rainQuality)
+            if enhanced && !traced {
+                SettingSelect(label: "Street light", key: "street_light", options: [("auto", "Auto"), ("on", "On"), ("off", "Off")])
+            }
+            if enhanced {
+                SettingSelect(label: "Light has shadows", key: "light_shadows", options: [("off", "Off"), ("street", "Street lamps and vehicles"), ("all", "Every light")])
+                SettingToggle(label: "Cloud shadows and light shafts", key: "cloud_shadows", fallback: true)
+                SettingToggle(label: "Glow of lights", key: "light_glow", fallback: true)
+            }
             SettingSelect(label: "Vehicle smoke", key: "vehicle_smoke", options: [("all", "All vehicles"), ("player", "Player only"), ("off", "Off")], help: "Controls the vehicles' smoke particles, not scenery effects or glowing particles.")
             if (store.setting("reflections")?.double ?? 1) > 0.005 {
-                SettingSelect(label: "Puddles", key: "puddles", options: [("high", "High"), ("low", "Low"), ("off", "Off")])
+                SettingSelect(label: enhanced ? "Real-Time Reflections" : "Puddles", key: "puddles", options: [("high", "High"), ("low", "Low"), ("off", "Off")])
             }
             SettingToggle(label: "Windy trees", key: "windy_trees", fallback: true)
+            if !classic {
+                SettingToggle(label: "Built-up snow on roads and roofs", key: "road_snow", fallback: true, help: "While it snows, snow builds up on the roads and on the vehicles' roofs, with ruts and tyre tracks, and thaws again; off: the weather's own snow on road, as in OMSI 2")
+            }
         }
     }
 
@@ -202,6 +222,7 @@ struct SettingsPage: View {
             SettingSlider(label: "Wheel rotation", key: "wheel_range", range: 180 ... 1800, step: 30, fallback: 900, round: 1) { deg($0) }
             if !phone {
                 SettingSlider(label: "Full lock at", key: "wheel_lock", range: 0 ... 1800, step: 30, fallback: 0, round: 1, zeroBelow: 45) { $0 < 45 ? "OMSI" : deg($0) }
+                SettingSlider(label: "Cab wheel rotation", key: "cab_wheel_rotation", range: 0 ... 1800, step: 30, fallback: 0, round: 1, zeroBelow: 90) { $0 < 90 ? String(localized: "Automatic") : deg($0) }
                 SettingSlider(label: "Throttle pedal strength", key: "pedal_throttle", range: 0.5 ... 2, step: 0.05, fallback: 1, round: 0.01) { pedal($0) }
                 SettingSlider(label: "Brake pedal strength", key: "pedal_brake", range: 0.5 ... 2, step: 0.05, fallback: 1, round: 0.01) { pedal($0) }
             }
@@ -225,7 +246,7 @@ struct SettingsPage: View {
             SettingSlider(label: "Engine vibration", key: "ff_engine_vib", range: 0 ... 4, step: 0.05, fallback: 1) { vibration($0) }
             SettingSlider(label: "Vibration fade-out", key: "ff_fade", range: 0 ... 1.5, step: 0.05, fallback: 0.28, round: 0.01) { $0 < 0.01 ? off : "\(Int(($0 * 1000).rounded())) ms" }
             button("Reset wheel settings", "arrow.counterclockwise") {
-                patch(["wheel_range": 900, "wheel_lock": 0, "ff_invert": false, "ff_enabled": true, "ff_road_vib": 1, "ff_engine_vib": 1, "ff_fade": 0.28])
+                patch(["wheel_range": 900, "wheel_lock": 0, "cab_wheel_rotation": 0, "ff_invert": false, "ff_enabled": true, "ff_road_vib": 1, "ff_engine_vib": 1, "ff_fade": 0.28])
             }
         }
     }
@@ -412,6 +433,7 @@ struct SettingsPage: View {
             SettingToggle(label: "AI vehicles on the map", key: "nav_ai", fallback: true)
             SettingToggle(label: "Map surface under the roads", key: "nav_surface", fallback: true)
             SettingToggle(label: "Light map", key: "nav_light")
+            SettingToggle(label: "Classic 2D navigator (lightweight)", key: "nav_classic_2d")
             SettingToggle(label: "3D buildings on the map", key: "nav_3d", fallback: true)
             SettingToggle(label: "Navigator as a widget (drag it anywhere, size it at its corner)", key: "nav_widget", fallback: true)
             SettingSlider(label: "Navigator size", key: "nav_size", range: 0.6 ... 2, step: 0.05, fallback: 1) { String(format: "%.0f %%", $0 * 100) }
@@ -445,7 +467,7 @@ struct SettingsPage: View {
             HStack {
                 Button("Export diagnostics") {
                     if let path = (try? JSONSerialization.jsonObject(with: Bridge.call("act", ["do": "diagnostics"]), options: [.fragmentsAllowed])) as? String {
-                        store.say(String(localized: "Support package saved: \(path)"), error: false)
+                        store.say(tr("Support package saved: {path}", ["path": path]), error: false)
                         Platform.reveal(path)
                     }
                 }
@@ -543,8 +565,8 @@ struct CornerRow: View {
     }
 }
 
-/// The quality presets of a graphics mode (`graphics_presets_for`): the one the settings
-/// match now, else "Custom".
+/// The quality presets, Low to Ultra (`graphics_presets`; each sets the graphics mode too): the one
+/// the settings match now, else "Custom".
 struct PresetRow: View {
     @Environment(LauncherStore.self) private var store
     var mode: String

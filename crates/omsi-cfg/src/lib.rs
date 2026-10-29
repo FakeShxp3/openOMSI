@@ -31,6 +31,8 @@ mod keywords;
 pub mod number;
 pub mod par;
 pub mod radio;
+pub mod template;
+pub mod transport;
 pub mod panic_guard;
 pub mod profile_keys;
 pub mod vfs;

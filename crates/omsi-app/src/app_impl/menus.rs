@@ -4,8 +4,6 @@ use super::*;
 use std::borrow::Cow;
 
 impl App {
-    /// What the cursor points at, for the HUD. Recomputed every frame: the head turns and
-    /// the bus moves under a cursor that is standing still.
     /// Open the game menu: the simulation pauses (not in a LAN session, which runs on
     /// for the other players).
     pub(crate) fn open_game_menu(&mut self) {
@@ -14,9 +12,25 @@ impl App {
         // steering key let go in the menu went on turning the wheel to full lock once the
         // menu closed (a throttle key went on accelerating, a door button stayed pressed)
         self.release_vehicle_keys();
+        // Mouse releases are consumed by the menu too. Finish any pending physical
+        // drag before letting go. VR stops precisely; desktop keeps its endpoint fallback.
+        let (dx, dy) = std::mem::take(&mut self.input.drag_delta);
+        let vr_active = self.vr_active();
+        if let Some(player) = self.player.as_mut() {
+            if self.input.dragging && (dx != 0.0 || dy != 0.0) {
+                player.drag(dx, dy);
+            }
+            player.release_for_menu(vr_active);
+        }
+        self.input.dragging = false;
+        self.input.buttons_held = (false, false);
+        self.input.both_drag = None;
         if self.net.lan.is_none() {
             self.paused = true;
         }
+        self.shell.pause_category = Default::default();
+        self.shell.pause_hidden = true;
+        self.shell.quick_edit = false;
         self.menus.game_menu = Some(0);
         self.menus.menu_top = None;
         self.menus.menu_kbd = true;
@@ -24,7 +38,16 @@ impl App {
     }
 
     pub(crate) fn close_game_menu(&mut self) {
+        self.shell.quick_edit = false;
         self.menus.key_capture = None;
+        if self.menus.menu_edit_number {
+            if let Some(w)=self.window.as_ref(){w.set_ime_allowed(false);}
+            self.menus.menu_edit_number=false; self.menus.menu_edit=None;
+        }
+        if self.menus.menu_edit_ident {
+            if let Some(w)=self.window.as_ref(){w.set_ime_allowed(false);}
+            self.menus.menu_edit_ident=false; self.menus.menu_edit=None;
+        }
         if self.menus.menu_edit_icao {
             if let Some(w)=self.window.as_ref(){w.set_ime_allowed(false);}
             self.menus.menu_edit_icao=false; self.menus.menu_edit=None;
@@ -61,21 +84,70 @@ impl App {
             self.chooser_key(code);
             return;
         }
-        let n = self.game_menu_items().len();
+        if self.quick_editor_key(code) { return; }
         let sel = self.menus.game_menu.unwrap_or(0);
         let modified = self.input.keys.iter().any(|key| {
             matches!(*key, KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::AltLeft | KeyCode::AltRight | KeyCode::ShiftLeft | KeyCode::ShiftRight)
         });
         self.menus.menu_top = None;
+        if code == KeyCode::KeyE && !modified && !self.vr_active() && self.shell.pause_category == crate::shell::pause::navigation::Category::Home {
+            self.shell.quick_edit = true;
+            self.shell.quick_focus = 0;
+            self.shell.last_sel = None;
+            return;
+        }
         match code {
             // P changes only the simulation state, even while a menu is open.
             KeyCode::KeyP if !modified => self.toggle_pause(),
             KeyCode::Escape => self.close_game_menu(),
-            KeyCode::ArrowUp | KeyCode::KeyW => self.menus.game_menu = Some(self.menu_step(sel, n, false)),
-            KeyCode::ArrowDown | KeyCode::KeyS => self.menus.game_menu = Some(self.menu_step(sel, n, true)),
+            KeyCode::ArrowUp | KeyCode::KeyW => self.menus.game_menu = Some(self.pause_menu_step(sel, false)),
+            KeyCode::ArrowDown | KeyCode::KeyS => self.menus.game_menu = Some(self.pause_menu_step(sel, true)),
+            KeyCode::ArrowLeft | KeyCode::KeyA if !self.vr_active() => self.step_pause_category(false),
+            KeyCode::ArrowRight | KeyCode::KeyD if !self.vr_active() => self.step_pause_category(true),
+            KeyCode::Tab if !self.vr_active() => {
+                let backwards = self.input.keys.contains(&KeyCode::ShiftLeft) || self.input.keys.contains(&KeyCode::ShiftRight);
+                self.step_pause_category(!backwards);
+            }
             KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => self.menu_choose(event_loop, sel),
             _ => {}
         }
+    }
+
+    /// The category is only a view of the permission-filtered menu, never a second action list.
+    pub(crate) fn switch_pause_category(&mut self, category: crate::shell::pause::navigation::Category) {
+        let menu = self.game_menu_items();
+        let ids: Vec<_> = menu.iter().map(|line| line.0).collect();
+        if !crate::shell::pause::navigation::Category::available(&ids).contains(&category) {
+            return;
+        }
+        self.close_list();
+        self.shell.pause_category = category;
+        self.shell.pause_hidden = false;
+        self.shell.quick_edit = false;
+        self.menus.game_menu = Some(crate::shell::pause::quick_actions::indices(category, &menu, &self.settings.pause_quick_actions).first().copied().unwrap_or(0));
+        self.shell.last_sel = None;
+    }
+
+    fn step_pause_category(&mut self, forward: bool) {
+        let menu = self.game_menu_items();
+        let ids: Vec<_> = menu.iter().map(|line| line.0).collect();
+        let categories = crate::shell::pause::navigation::Category::available(&ids);
+        let current = categories.iter().position(|c| *c == self.shell.pause_category).unwrap_or(0);
+        let next = if forward { (current + 1) % categories.len() } else { (current + categories.len() - 1) % categories.len() };
+        self.switch_pause_category(categories[next]);
+    }
+
+    fn pause_menu_step(&self, from: usize, down: bool) -> usize {
+        let menu = self.game_menu_items();
+        if self.vr_active() {
+            return self.menu_step(from, menu.len(), down);
+        }
+        let ids: Vec<_> = menu.iter().map(|line| line.0).collect();
+        let mut indices: Vec<_> = ids.iter().position(|id| *id == "resume").into_iter().collect();
+        indices.extend(crate::shell::pause::quick_actions::indices(self.shell.pause_category, &menu, &self.settings.pause_quick_actions));
+        indices.extend(ids.iter().position(|id| *id == "quit"));
+        indices.retain(|k| !self.menu_item_off(*k));
+        crate::shell::pause::navigation::step(&indices, from, down).unwrap_or(from)
     }
 
     /// The open drop-down's scroll bar held with the mouse at height `y`: the first entry
@@ -101,6 +173,7 @@ impl App {
     pub(crate) fn menu_wheel(&mut self, amount: f32) {
         // (the pause menu of the launcher's toolkit scrolls what is under the mouse itself)
         if self.shell_takes_mouse() {
+            self.menus.menu_kbd = false;
             self.shell.wheel(amount);
             return;
         }
@@ -164,6 +237,29 @@ impl App {
         }
         let Some(id) = self.game_menu_items().get(k).map(|m| m.0) else { return };
         match id {
+            "load" => {
+                self.close_game_menu();
+                if self.load_quicksave() {
+                    self.finish_session();
+                    crate::platform::exit(event_loop);
+                }
+            }
+            "quit" => {
+                self.menus.game_menu = None;
+                self.finish_session();
+                crate::platform::exit(event_loop);
+            }
+            "plugin" => self.choose_plugin_line(k),
+            other => {
+                self.game_menu_action(other);
+            }
+        }
+    }
+
+    /// What a line of the game menu does, by its id (all but loading, leaving and the
+    /// plugins' lines): also the Alt quick menu's tiles. False when `id` is none of them.
+    pub(crate) fn game_menu_action(&mut self, id: &str) -> bool {
+        match id {
             "resume" => self.close_game_menu(),
             "options" => self.open_list(crate::game_lists::ListKind::Options(0)),
             "controls" => self.open_list(crate::game_lists::ListKind::Controls),
@@ -215,24 +311,10 @@ impl App {
                 self.close_game_menu();
                 self.back_to_bus();
             }
-            "load" => {
-                self.close_game_menu();
-                if self.load_quicksave() {
-                    self.finish_session();
-                    crate::platform::exit(event_loop);
-                }
-            }
-            "quit" => {
-                self.menus.game_menu = None;
-                self.finish_session();
-                crate::platform::exit(event_loop);
-            }
-            "plugin" => self.choose_plugin_line(k),
             // (the rest are the lines of the vehicle and world pages)
-            other => {
-                self.page_action(other);
-            }
+            other => return self.page_action(other),
         }
+        true
     }
 
     /// The actions of the vehicle and world pages (and of what the plugins and the input
@@ -371,14 +453,17 @@ impl App {
 }
 
 /// The game menu on a server (`--lan-join https://…`): the world's clock and weather are the
-/// server's, and the way out leaves the server.
-pub(crate) const SERVER_GAME_MENU: [(&str, &str); 9] = [
+/// server's, and the way out leaves the server. The player's own tour can still be changed
+/// or ended; the Alt menu uses these same offered actions.
+pub(crate) const SERVER_GAME_MENU: [(&str, &str); 11] = [
     ("resume", "Resume"),
     ("options", "Options..."),
     ("camera", "Camera..."),
     ("vehicle", "Vehicle options..."),
     ("world", "World options..."),
     ("map", "City map"),
+    ("duty", "Line and tour..."),
+    ("endduty", "End the tour"),
     ("shot", "Screenshot"),
     ("photo", "Photo mode"),
     ("quit", "Leave the server"),
@@ -547,3 +632,43 @@ pub(crate) const GAME_MENU: [(&str, &str); 16] = [
     ("photo", "Photo mode"),
     ("quit", "End the session"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn websocket_server_menu_offers_the_players_tour_controls() {
+        for target in [
+            "https://localhost",
+            "http://localhost",
+            "wss://localhost/ws",
+            "ws://localhost/ws",
+        ] {
+            let args = Args::parse_from(["openomsi", "--lan-join", target]);
+            let menu = game_menu_for(&args);
+            assert!(menu.contains(&("duty", "Line and tour...")), "{target}");
+            assert!(menu.contains(&("endduty", "End the tour")), "{target}");
+            assert!(menu.contains(&("quit", "Leave the server")), "{target}");
+            for local_only in ["save", "saveslot", "load", "skipstop"] {
+                assert!(
+                    !menu.iter().any(|(id, _)| *id == local_only),
+                    "{target}: {local_only}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn solo_and_udp_menus_keep_their_existing_actions() {
+        for extra in [vec![], vec!["--lan-join", "127.0.0.1:27015"]] {
+            let args = Args::parse_from(std::iter::once("openomsi").chain(extra));
+            let menu = game_menu_for(&args);
+            assert_eq!(menu, &GAME_MENU);
+            assert!(menu.contains(&("duty", "Line and tour...")));
+            assert!(menu.contains(&("endduty", "End the tour")));
+            assert!(menu.contains(&("quit", "End the session")));
+        }
+    }
+}

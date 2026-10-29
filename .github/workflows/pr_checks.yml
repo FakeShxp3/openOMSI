@@ -76,3 +76,11 @@ jobs:
           else
             node --experimental-websocket launcher/tests/drive-check.mjs
           fi
+
+      - name: AI Lists state
+        if: ${{ !cancelled() }}
+        run: node launcher/tests/ai-lists-check.mjs
+
+      - name: Launcher theme startup
+        if: ${{ !cancelled() }}
+        run: node --experimental-vm-modules --test launcher/tests/theme-startup.test.mjs

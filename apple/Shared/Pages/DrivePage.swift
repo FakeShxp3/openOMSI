@@ -95,7 +95,7 @@ struct MapCard: View {
                         }
                         HStack(spacing: 8) {
                             if m.installed == true { Tag(text: "Mod") }
-                            Text("\(m.entry_points.count) entry points").font(.inter(12.5)).foregroundStyle(Theme.muted)
+                            Text(tr("{n} entry points", ["n": "\(m.entry_points.count)"])).font(.inter(12.5)).foregroundStyle(Theme.muted)
                         }
                         .padding(.top, 5)
                     }
@@ -103,7 +103,7 @@ struct MapCard: View {
                 }
                 if store.choice.lan_mode != "join" { NotesBox(kind: "map", file: m.file) }
             } else {
-                Notice(text: store.lists.maps.isEmpty ? String(localized: "No map is installed.") : String(localized: "Choose a map."), kind: .warn)
+                Notice(text: store.lists.maps.isEmpty ? String(localized: "No map is installed.") : String(localized: "Choose a map"), kind: .warn)
             }
         }
     }
@@ -205,7 +205,7 @@ struct BusCard: View {
                 }
                 VehicleFields(bus: b)
             } else {
-                Notice(text: store.lists.vehicles.isEmpty ? String(localized: "No bus is installed.") : String(localized: "Choose a bus."), kind: .warn)
+                Notice(text: store.lists.vehicles.isEmpty ? String(localized: "No bus is installed.") : String(localized: "Choose a bus"), kind: .warn)
             }
         }
     }
@@ -338,7 +338,7 @@ struct DutyCard: View {
                 HStack {
                     Text("Trips of the tour").font(.inter(12.5, .medium)).foregroundStyle(Theme.text2)
                     Spacer()
-                    Text(compact ? "Tap a trip to start with it" : "Click a trip to start with it").font(.inter(12.5)).foregroundStyle(Theme.muted)
+                    Text(LocalizedStringKey(compact ? "Tap a trip to start with it" : "Click a trip to start with it")).font(.inter(12.5)).foregroundStyle(Theme.muted)
                 }
                 TripsTable(tour: t, current: store.startTrip?.index, now: now)
             }
@@ -362,8 +362,9 @@ struct DutyCard: View {
     }
 }
 
-/// The trips of the tour: departure, line, from, to, arrival; the one a start takes is marked,
-/// the ones gone by before the start time are dimmed; a click starts the tour there.
+/// The trips of the tour: departure (and how long the trip takes), line, from, to, arrival; the
+/// one a start takes is marked, the ones gone by before the start time are dimmed; a click starts
+/// the tour there.
 struct TripsTable: View {
     @Environment(LauncherStore.self) private var store
     @Environment(\.compactLayout) private var compact
@@ -389,7 +390,7 @@ struct TripsTable: View {
             .fieldBackground()
             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
             .onAppear { if let c = current { proxy.scrollTo(c, anchor: .center) } }
-            .onChange(of: "\(tour.number)|\(current ?? -1)") { _, _ in
+            .onChange(of: "\(tour.id)|\(current ?? -1)") { _, _ in
                 if let c = current { withAnimation { proxy.scrollTo(c, anchor: .center) } }
             }
         }
@@ -411,7 +412,11 @@ struct TripsTable: View {
     private func row(_ x: TripInfo, on: Bool, past: Bool, odd: Bool) -> some View {
         Button { store.act("pick_trip", ["index": x.index, "departure": x.departure]) } label: {
             HStack(spacing: 10) {
-                Text(hhmm(x.departure)).font(.inter(14, .bold).monospacedDigit()).frame(width: 58, alignment: .leading)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(hhmm(x.departure)).font(.inter(14, .bold).monospacedDigit())
+                    Text(tripTime(x)).font(.inter(11.5)).foregroundStyle(Theme.muted).lineLimit(2)
+                }
+                .frame(width: 58, alignment: .leading)
                 Group {
                     if isDepotRun(x) { Text("Depot run").font(.inter(12.5)).foregroundStyle(Theme.muted).lineLimit(1) } else { LineBadge(line: x.line) }
                 }
@@ -448,7 +453,7 @@ struct StopsList: View {
             }
             .padding(.top, 8)
         } label: {
-            Text("Stops of the trip (\(trip.stops.count))").font(.inter(12.5, .medium)).foregroundStyle(Theme.text2)
+            Text(tr("Stops of the trip ({n})", ["n": "\(trip.stops.count)"])).font(.inter(12.5, .medium)).foregroundStyle(Theme.text2)
         }
         .tint(Theme.muted)
     }
@@ -578,6 +583,7 @@ struct TimeCard: View {
             Field("Weather", help: weatherHelp) {
                 SelectField(options: weatherOptions, selection: weatherValue, onChange: pickWeather)
             }
+            CabinTemperatureOption()
             if c.weather.hasPrefix("metar:") {
                 Field("Airport") { AirportField(code: WeatherChoice.metar(c)) }
             }
@@ -626,7 +632,7 @@ struct TimeCard: View {
         if w == "cycle" { return String(localized: "Changes every 25-60 minutes, as the month allows") }
         if w == "tomorrow" { return String(localized: "Current weather") }
         if let x = store.weather {
-            return x.description.isEmpty ? "\(Int(x.temp)) °C - \(x.precip.isEmpty ? "dry" : x.precip) - \(x.fog_m >= 10000 ? "clear air" : "\(Int(x.fog_m)) m")" : x.description
+            return x.description.isEmpty ? "\(Int(x.temp)) °C - \(precipText(x.precip)) - \(x.fog_m >= 10000 ? String(localized: "clear air") : "\(Int(x.fog_m)) m")" : x.description
         }
         return ""
     }
@@ -658,6 +664,19 @@ struct TimeCard: View {
         f.locale = Locale(identifier: "en_US_POSIX")
         f.isLenient = false
         if let d = f.date(from: date.trimmingCharacters(in: .whitespaces)) { store.act("date", ["date": f.string(from: d)]) } else { date = store.choice.date }
+    }
+}
+
+struct CabinTemperatureOption: View {
+    @Environment(LauncherStore.self) private var store
+
+    var body: some View {
+        let temperature = store.setting("units")?.string == "us" ? "72°F" : "22°C"
+        VStack(alignment: .leading, spacing: 4) {
+            ToggleRow(label: "Start with a comfortable cabin temperature", help: LocalizedStringKey(tr("Sets the cabin to {temperature} when starting a drive.", ["temperature": temperature])), isOn: store.choice.comfortable_cabin_on_start) {
+                store.act("flag", ["name": "comfortable_cabin_on_start", "on": $0])
+            }
+        }
     }
 }
 
@@ -722,7 +741,7 @@ struct Summary: View {
                 if c.lan_mode == "join" {
                     HStack(spacing: 10) {
                         Image(systemName: "person.2.fill").foregroundStyle(Theme.muted)
-                        Text("Joining \(c.lan_addr.isEmpty ? store.snapshot.joined_server ?? "" : c.lan_addr)").font(.inter(13.5)).lineLimit(1)
+                        Text(tr("Joining {server}", ["server": c.lan_addr.isEmpty ? store.snapshot.joined_server ?? "" : c.lan_addr])).font(.inter(13.5)).lineLimit(1)
                         Spacer()
                         Button("Leave") { store.act("server_leave"); store.act("lan", ["mode": "off"]) }.buttonStyle(.launcher(.ghost, small: true))
                     }
@@ -737,7 +756,7 @@ struct Summary: View {
                 let running = store.snapshot.instances.filter { $0.running != false }.count
                 if running > 0 {
                     HStack(spacing: 4) {
-                        Text("\(running) game(s) running -").foregroundStyle(Theme.muted)
+                        Text(tr("{n} game(s) running", ["n": "\(running)"]) + " -").foregroundStyle(Theme.muted)
                         Button("Show") { store.page = .games; store.phoneTab = "more"; store.phoneMore = .games }.buttonStyle(.plain).foregroundStyle(Theme.accent)
                     }
                     .font(.inter(12.5))
@@ -883,7 +902,7 @@ struct MapPicker: View {
                                     HStack(alignment: .top) {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(m.title).font(.inter(14, .semibold)).lineLimit(1)
-                                            Text("\(m.installed == true ? String(localized: "Mod") : "OMSI 2") - \(m.entry_points.count) entry points").font(.inter(12.5)).foregroundStyle(Theme.muted)
+                                            Text("\(m.installed == true ? String(localized: "Mod") : "OMSI 2") - " + tr("{n} entry points", ["n": "\(m.entry_points.count)"])).font(.inter(12.5)).foregroundStyle(Theme.muted)
                                         }
                                         Spacer(minLength: 4)
                                         if on { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent) }
@@ -902,7 +921,7 @@ struct MapPicker: View {
                 }
             }
         } foot: {
-            Text("\(maps.count) maps").font(.inter(12.5)).foregroundStyle(Theme.muted)
+            Text(tr("{n} maps", ["n": "\(maps.count)"])).font(.inter(12.5)).foregroundStyle(Theme.muted)
             Spacer()
             Button("Close") { dismiss() }.buttonStyle(.secondary)
         }
@@ -940,7 +959,7 @@ struct BusPicker: View {
                 }
             }
         } foot: {
-            Text("\(list.count) buses").font(.inter(12.5)).foregroundStyle(Theme.muted)
+            Text(tr("{n} buses", ["n": "\(list.count)"])).font(.inter(12.5)).foregroundStyle(Theme.muted)
             Spacer()
             Button { dismiss() } label: { Label("Take this bus", systemImage: "checkmark") }.buttonStyle(.primary).disabled(store.bus == nil)
         }
@@ -995,4 +1014,11 @@ struct BusPicker: View {
             EmptyState(icon: "bus", title: "Choose a bus on the left")
         }
     }
+}
+
+func precipText(_ p: String) -> String {
+    let n = String(p.drop(while: { !$0.isNumber }).dropLast())
+    if p.hasPrefix("rain ") { return tr("rain {n}%", ["n": n]) }
+    if p.hasPrefix("snow ") { return tr("snow {n}%", ["n": n]) }
+    return String(localized: "dry")
 }

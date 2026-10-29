@@ -8,6 +8,8 @@ use omsi_trolley::{RigInput, RopeCmd, TrolleyDef, TrolleyRig, WireNet};
 
 pub struct TrolleyGear {
     pub rig: TrolleyRig,
+    def: Arc<TrolleyDef>,
+    pub carrier: Option<usize>,
     /// The overhead wire of the map the vehicle is on.
     pub net: Option<Arc<WireNet>>,
     /// What each pole's rope is doing (set by whoever handles the poles).
@@ -40,6 +42,8 @@ pub struct TrolleyGear {
     /// wire the hand was aimed at for this many seconds, as it does when the cab raises it.
     assist: Vec<f32>,
     names: Names,
+    /// The way the drive last pulled, read off the script's torque (see `step_trolley`).
+    last_dir: f32,
     /// The variables of the poles and of the gear as the model reads them: their slots, and
     /// the values of the step (kept to be written again, no allocation).
     var_ids: Vec<omsi_script::VarId>,
@@ -55,6 +59,8 @@ impl TrolleyGear {
         if def.poles.is_empty() && def.drive.is_none() {
             return None;
         }
+        // A legacy bus's script owns its gears and interlocks. Do not replace its
+        // traction with a generic drive until those controls have an adapter.
         let pole = (1..=def.poles.len())
             .map(|k| {
                 [
@@ -70,6 +76,8 @@ impl TrolleyGear {
         rig.verbose = omsi_cfg::flags::OMSI_DEBUG_TROLLEY.is_set();
         Some(Box::new(TrolleyGear {
             rig,
+            def: Arc::new(def.clone()),
+            carrier: None,
             net: None,
             auto_raise_for: 0.0,
             ropes: vec![RopeCmd::Idle; def.poles.len()],
@@ -85,6 +93,7 @@ impl TrolleyGear {
             grab_was: None,
             assist: vec![0.0; def.poles.len()],
             names: Names { pole },
+            last_dir: 1.0,
             var_ids: Vec::new(),
             var_values: Vec::new(),
         }))
@@ -111,6 +120,25 @@ impl VehicleInstance {
         }
     }
 
+    pub fn trolley_frame(&self) -> (glam::DVec3, glam::Mat4, Option<[f32; 6]>) {
+        match self.trolley.as_ref().and_then(|g| g.carrier).and_then(|k| self.trailers.get(k)) {
+            Some(t) => (t.position, t.body_rotation(), t.ty.def.bounding_box),
+            None => (self.position, self.body_rotation(), self.ty.def.bounding_box),
+        }
+    }
+
+    pub(super) fn adopt_trailer_trolley(&mut self, ty: &VehicleType, carrier: usize) -> bool {
+        if self.trolley.is_some() || ty.def.trolley.poles.is_empty() {
+            return false;
+        }
+        self.trolley = TrolleyGear::for_type(&ty.def.trolley, carrier as u64 ^ 0x7f4a_7c15);
+        if let Some(g) = self.trolley.as_mut() {
+            g.carrier = Some(carrier);
+        }
+        self.declare_trolley_vars();
+        true
+    }
+
     /// The driven wheels' radius (m).
     fn driven_radius(&self) -> f32 {
         let a = self.ty.def.axles.iter().find(|a| a.driven).or(self.ty.def.axles.first());
@@ -122,10 +150,28 @@ impl VehicleInstance {
         if self.trolley.is_none() {
             return;
         }
-        let m = self.body_rotation();
+        let (pos, m, _) = self.trolley_frame();
         let rot = glam::DMat3::from_cols(m.x_axis.truncate().as_dvec3(), m.y_axis.truncate().as_dvec3(), m.z_axis.truncate().as_dvec3());
-        let def = &self.ty.def.trolley;
-        let dir = self.var(&def.vars.direction).map_or(1.0, |d| if d > 0.5 { 1.0 } else if d < -0.5 { -1.0 } else { 0.0 });
+        let def = self.trolley.as_ref().unwrap().def.clone();
+        // the way the drive pulls: the model's variable where it has one, else the way the
+        // script's own torque points while the pedal is down (reverse gear: negative), kept
+        // while the pedal is up
+        let dir = match self.var(&def.vars.direction) {
+            Some(d) => {
+                if d > 0.5 { 1.0 } else if d < -0.5 { -1.0 } else { 0.0 }
+            }
+            // (only with the typical drive, which waits for the script adapter: see `TrolleyDef`)
+            None if def.drive_typical => {
+                let torque = self.get(self.v_m_wheel);
+                let held = self.trolley.as_ref().map_or(1.0, |g| g.last_dir);
+                let now = direction_of(self.physics.controls.throttle, torque, held);
+                if let Some(g) = self.trolley.as_mut() {
+                    g.last_dir = now;
+                }
+                now
+            }
+            None => 1.0,
+        };
         let blinker = {
             let l = self.var(&def.vars.indicator_left).is_some_and(|v| v > 0.5);
             let r = self.var(&def.vars.indicator_right).is_some_and(|v| v > 0.5);
@@ -146,7 +192,7 @@ impl VehicleInstance {
         let script_force = (self.get(self.v_m_wheel) / self.driven_radius().max(0.1)).max(0.0);
         let radius = self.driven_radius();
         let c = self.physics.controls;
-        let (pos, speed, accel) = (self.position, self.physics.speed, self.physics.a_trans);
+        let (speed, accel) = (self.physics.speed, self.physics.a_trans);
         let has_drive = def.drive.is_some();
         let g = self.trolley.as_mut().unwrap();
         // the cab's switch: motorised poles go up (+) or down (-)
@@ -315,5 +361,59 @@ impl VehicleInstance {
                 None => script,
             },
         }
+    }
+}
+
+/// The way a drive of a plain trolleybus pulls, read off the bus script's wheel torque while the
+/// pedal is down (reverse gear: negative torque), the last one kept while it is up or the script
+/// gives none.
+fn direction_of(throttle: f32, torque: f32, held: f32) -> f32 {
+    if throttle > 0.05 && torque.abs() > 30.0 { torque.signum() } else { held }
+}
+
+#[cfg(test)]
+mod direction_tests {
+    use super::{direction_of, TrolleyDef};
+    #[test]
+    fn legacy_traction_is_not_replaced_by_a_typical_drive() {
+        // Exercise the opt-in path in a fresh process without changing other tests' settings.
+        const CHILD: &str = "OMSI_TEST_LEGACY_TROLLEY_DRIVE";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "vehicle::trolley::direction_tests::legacy_traction_is_not_replaced_by_a_typical_drive"])
+                .env(CHILD, "1")
+                .env("OMSI_REALISTIC_ROAD", "1")
+                .status()
+                .unwrap();
+            assert!(status.success(), "legacy traction must also be preserved in realistic mode");
+        } else {
+            assert!(crate::rail::realistic(), "the child exercises realistic mode");
+        }
+        let def = TrolleyDef {
+            poles: vec![omsi_trolley::PoleDef::default()],
+            typical_drive: Some(omsi_trolley::DriveKind::typical(13_000.0, false)),
+            ..Default::default()
+        };
+        let gear = super::TrolleyGear::for_type(&def, 1).unwrap();
+        assert!(gear.def.drive.is_none(), "the bus script keeps its gears and interlocks");
+        assert!(gear.torque.is_none(), "no native torque overrides the script");
+        assert_eq!(gear.rig.poles.len(), 1, "pole simulation is retained");
+
+        let explicit = TrolleyDef {
+            drive: def.typical_drive.clone(),
+            ..def
+        };
+        let gear = super::TrolleyGear::for_type(&explicit, 1).unwrap();
+        assert_eq!(gear.def.drive, explicit.drive, "an explicitly configured drive remains available");
+    }
+
+
+    #[test]
+    fn follows_the_sign_of_the_torque_under_the_pedal_and_keeps_it_after() {
+        assert_eq!(direction_of(0.8, 400.0, 1.0), 1.0);
+        assert_eq!(direction_of(0.8, -400.0, 1.0), -1.0);
+        assert_eq!(direction_of(0.0, 0.0, -1.0), -1.0, "pedal up: kept");
+        assert_eq!(direction_of(0.8, 0.0, -1.0), -1.0, "a script that gives no torque: kept");
+        assert_eq!(direction_of(0.8, 12.0, 1.0), 1.0, "noise is not a direction");
     }
 }

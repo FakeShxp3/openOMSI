@@ -260,10 +260,9 @@ impl TrolleyView {
                 renderer.set_transform(scene, f.tongue, f.pos + DVec3::Z * 0.2, Mat4::from_cols(x.extend(0.0), y.extend(0.0), z.extend(0.0), glam::Vec4::W));
             }
         }
-        let rot = vehicle.body_rotation();
-        let pos = vehicle.position;
-        let rear = vehicle.ty.def.bounding_box.map_or(-5.5, |b| b[4] - b[1].abs() * 0.5);
-        let legacy = vehicle.ty.def.trolley.legacy.is_some();
+        let (pos, rot, bbox) = vehicle.trolley_frame();
+        let rear = bbox.map_or(-5.5, |b| b[4] - b[1].abs() * 0.5);
+        let legacy = vehicle.trolley.as_deref().is_some_and(|g| g.rig.def.legacy.is_some());
         let sparks = {
             let Some(g) = vehicle.trolley.as_deref_mut() else { return };
             for (k, p) in g.rig.poles.iter().enumerate() {
@@ -378,7 +377,7 @@ impl TrolleyView {
             let k = (1.0 - t) * (1.0 - t);
             let size = 0.12 + f.energy.sqrt() * 0.04;
             scene.coronas.push(Corona { position: f.pos, size, color: [0.8, 0.88, 1.0], brightness: 3.0 * k, direction: Vec3::ZERO, cone_cos: -1.0, ..Default::default() });
-            scene.lights.push(PointLight { position: f.pos, radius: 6.0 + f.energy.sqrt() * 0.9, color: [0.7, 0.82, 1.0], intensity: (f.energy.sqrt() / 7.0).min(4.0) * k, ..Default::default() });
+            scene.lights.push(PointLight { position: f.pos, radius: 6.0 + f.energy.sqrt() * 0.9, color: [0.7, 0.82, 1.0], intensity: (f.energy.sqrt() / 7.0).min(4.0) * k, flash: true, ..Default::default() });
         }
         // an open contact carrying current burns: a flickering glow at the shoe
         if let Some(g) = vehicle.trolley.as_deref() {

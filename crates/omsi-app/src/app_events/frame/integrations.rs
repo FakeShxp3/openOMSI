@@ -43,7 +43,11 @@ impl App {
             steam.client.run_callbacks();
         }
         // the plugins' frame, with the bus's scripts done
-        let mut plugins = self.integrations.plugins.take().unwrap_or_else(crate::plugins::load);
+        let mut plugins = self.integrations.plugins.take().unwrap_or_else(|| crate::plugins::load(self.args.no_plugins));
+        self.sync_vehicle_scripts(&mut plugins);
+        if !self.paused && !self.args.no_plugins && !omsi_cfg::flags::OMSI_NO_PLUGINS.is_set() {
+            crate::plugin_io::object::drive(self, &mut plugins, dt);
+        }
         if !plugins.is_empty() {
             self.plugin_watch(&mut plugins);
         }

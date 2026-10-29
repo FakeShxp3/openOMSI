@@ -11,7 +11,15 @@ impl App {
         // (the cursor's aim into the cab: again when the cursor or the view
         // turned, else every few frames for switches that moved under it - a ray
         // through every cockpit mesh every frame was a tenth of the frame)
-        let key = self.camera.as_ref().map(|c| (self.input.cursor.0.round() as i32, self.input.cursor.1.round() as i32, (c.yaw * 4.0).round() as i32, (c.pitch * 4.0).round() as i32));
+        #[cfg(windows)]
+        let headset_camera = self
+            .xr
+            .vr
+            .as_ref()
+            .and_then(|vr| vr.navigator_edit_camera());
+        #[cfg(not(windows))]
+        let headset_camera: Option<omsi_render::Camera> = None;
+        let key = headset_camera.as_ref().or(self.camera.as_ref()).map(|c| (self.input.cursor.0.round() as i32, self.input.cursor.1.round() as i32, (c.yaw * 4.0).round() as i32, (c.pitch * 4.0).round() as i32));
         // (the cab sways with the suspension: a view that only turned waits a few frames)
         let cursor_moved = key.map(|k| (k.0, k.1)) != self.menus.hover_key.map(|k| (k.0, k.1));
         if cursor_moved || (key != self.menus.hover_key && self.perf.total_frames % 6 == 0) || self.perf.total_frames % 12 == 0 {
@@ -223,6 +231,7 @@ pub(super) fn player_to_scene(cx: PlayerToSceneCx, dt: f32) {
     if let Some(tv) = p.trolley_view.as_mut() {
         tv.update(r, scene, dt, &mut p.vehicle);
     }
+    p.panto_fx.update(dt, &mut p.vehicle);
     let glass = p.sync_transforms(r, scene, inside, cx.world.world.as_ref().map_or(2, |w| w.settings.rain_quality()));
     cx.perf.profile.add(crate::profile_keys::ProfKey::PlayerGlass, glass);
     crate::scene::sync_vehicle_damage(r, scene, &mut p.vehicle, &mut p.render);
@@ -282,6 +291,7 @@ pub(super) fn audio(cx: AudioCx, dt: f32) {
         }
     }
     if let Some(a) = cx.sound.audio.as_ref() {
+        cx.sound.milezero.update(a, cx.common.settings.milezero, cx.common.settings.volume);
         match cx.player.player.as_mut() {
             Some(p) => {
                 let inside = cx.view.cam.in_cab;

@@ -53,9 +53,16 @@ impl App {
         // edge, and the navigator's panel stood out from under it)
         let nav_hidden = !vr_active && self.menus.game_menu.is_some();
         // (a plugin's panel for the navigator's board, as tall as it was laid out last: the
-        // navigator makes room for it and says where it goes)
+        // navigator makes room for it and says where it goes - under its map, or the whole
+        // frame for one that fills it, its map where the panel has it)
         if let Some(n) = self.menus.navigator.as_mut() {
-            n.dock = self.integrations.plugin_panels.docked;
+            let docked = self.integrations.plugin_panels.docked;
+            n.dock = docked.filter(|d| !d.frame).map(|d| d.height);
+            n.frame_panel = docked.filter(|d| d.frame).map(|d| navigator::FramePanel {
+                height: d.height,
+                map: d.map.map(|m| navigator::FrameMap { rect: m.rect, cards: m.cards }),
+                background: d.background,
+            });
         }
         self.frame_navigator(dt, hud, vr_active, nav_hidden, vr_nav_display);
         // the Lua plugins' panels (`omsi.ui`): over the picture and the navigator,
@@ -134,7 +141,7 @@ impl App {
         if let Some((msg, left)) = self.service_msg.as_mut() {
             *left -= dt;
             if *left > 0.0 {
-                let kind = message_kind(msg);
+                let kind = message_kind(&omsi_ui::i18n::english(msg));
                 say(format!("message {msg}"), msg.clone(), kind);
             }
         }
@@ -170,7 +177,7 @@ impl App {
             if let Some(hint) = h.hint() {
                 say(hint.clone(), hint, NoticeKind::Action);
             } else if let Some((name, value)) = &h.request {
-                let t = format!("Passenger wants: {name}  {value:.2}");
+                let t = omsi_ui::tr("Passenger wants: {name}  {value:.2}").replace("{name}", name).replace("{value:.2}", &format!("{value:.2}"));
                 say(t.clone(), t, NoticeKind::Action);
             }
             if let Some((paid, value)) = h.paid {
@@ -178,7 +185,7 @@ impl App {
                 say(t.clone(), t, NoticeKind::Info);
             }
             if let Some(owed) = h.change_due {
-                let t = format!("Change due: {owed:.2}");
+                let t = omsi_ui::tr("Change due: {owed:.2}").replace("{owed:.2}", &format!("{owed:.2}"));
                 say(t.clone(), t, NoticeKind::Action);
             }
         }
@@ -393,8 +400,9 @@ impl App {
                 cursor: self.input.cursor,
                 dt,
                 backdrop: ui::backdrop(settings.ui_opacity),
+                light: settings.is_light_theme(),
                 navigator: self.menus.navigator.as_ref().and_then(|n| n.screen_rect()),
-                dock: self.menus.navigator.as_ref().and_then(|n| n.dock_slot).map(|(r, scale, placed)| crate::plugin_ui::Dock { width: r[2], room: r[3], scale, at: placed.then(|| glam::Vec2::new(r[0], r[1])) }),
+                dock: self.menus.navigator.as_ref().and_then(|n| n.dock_slot).map(|(r, scale, placed, frame)| crate::plugin_ui::Dock { width: r[2], room: r[3], scale, at: placed.then(|| glam::Vec2::new(r[0], r[1])), frame }),
             };
             let mut state = plugin_ui.borrow_mut();
             self.integrations.plugin_panels.frame(r, scene, &mut state, &frame);
@@ -504,11 +512,33 @@ impl App {
             let menu_disabled: &[&str] = &[];
             let (menu_kind, menu_head, menu_preview) = crate::game_lists::menu_extras(self.menus.list_kind.as_ref(), self.menus.admin_list.as_deref(), chooser_sel, self.session.schedule.as_ref().or(self.session.timetable_book.as_ref()), self.clock.time);
             crate::telemetry::publish(self.player.as_ref(), self.session.duty.as_ref(), self.session.humans.as_ref(), self.paused, self.session.schedule.as_ref(), self.session.traffic.as_ref());
+            let mz_view = (self.settings.milezero && self.menus.game_menu.is_none()).then(|| {
+                let m = &self.sound.milezero;
+                let song = m.song().unwrap_or_default();
+                let (cx, cy) = self.input.cursor;
+                let over = ui.mz.rect.is_some_and(|q| cx >= q[0] && cx < q[2] && cy >= q[1] && cy < q[3]);
+                ui::MzView {
+                    title: song.title,
+                    artist: song.artist,
+                    dj: song.dj,
+                    duration: song.duration,
+                    light: self.settings.is_light_theme(),
+                    art: song.cover,
+                    elapsed: m.elapsed(),
+                    playing: m.is_playing(),
+                    loading: m.loading(),
+                    quality: m.quality(),
+                    typing: m.typing.clone(),
+                    status: m.request_status(),
+                    hover: over || m.typing.is_some(),
+                }
+            });
+            let mz_gap = if mz_view.is_some() { ui.mz.extent } else { 0.0 };
             let frame = ui::Frame {
                 scale,
                 ui_scale: ui::size_factor(h, scale, self.settings.ui_scale, self.settings.ui_scale_window),
                 opacity: ui::backdrop(self.settings.ui_opacity),
-                light: self.settings.nav_light,
+                light: self.settings.is_light_theme(),
                 sizes: self.settings.hud_sizes,
                 width: w,
                 height: h,
@@ -556,7 +586,13 @@ impl App {
                 chat_size: self.settings.chat_size,
                 tags,
                 notices: &self.menus.notices,
-                notice_anchor: self.menus.navigator.as_ref().and_then(|n| n.screen_rect()),
+                notice_anchor: self.menus.navigator.as_ref().and_then(|n| n.screen_rect()).map(|mut a| {
+                    // (the MileZero card stands between the navigator and the notices)
+                    if a[1] > h * 0.5 { a[1] -= mz_gap } else { a[3] += mz_gap }
+                    a
+                }),
+                milezero: mz_view.as_ref(),
+                nav_rect: self.menus.navigator.as_ref().and_then(|n| n.screen_rect()),
             };
             ui.draw_at(r, scene, &frame, dt, hud[0]);
         }

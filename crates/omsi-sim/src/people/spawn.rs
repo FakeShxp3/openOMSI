@@ -121,6 +121,7 @@ impl PeopleSim {
             content: 0,
             ticket_requests: 0,
             ticket_points: 0,
+            sale_events: Vec::new(),
             entry_req: Vec::new(),
             exit_req: Vec::new(),
             entry_busy: Vec::new(),
@@ -158,7 +159,6 @@ impl PeopleSim {
             boarding: "auto".into(),
             stand_chance: 0.05,
             give_ticket: false,
-            give_change_all: false,
             ticket_key: "T".into(),
             eye: None,
             center: DVec3::ZERO,
@@ -749,6 +749,7 @@ impl PeopleSim {
         if self.desk_busy == Some(id) {
             self.desk_busy = None;
             self.request = None;
+            self.change_due = None;
         }
     }
 }

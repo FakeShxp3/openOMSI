@@ -402,13 +402,14 @@ pub(crate) fn record_bundles(
     camera: &wgpu::BindGroup,
     format: wgpu::TextureFormat,
     samples: u32,
+    surfaces: bool,
 ) -> Vec<Option<wgpu::RenderBundle>> {
     let color_formats = [Some(format), Some(MASK_FORMAT), Some(GBUF_FORMAT), Some(AUX_FORMAT)];
     let record = |chunk: &[Batch]| -> wgpu::RenderBundle {
         let mut bundle =
             device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
                 label: Some("main pass part"),
-                color_formats: &color_formats[..if format != HDR_FORMAT { 1 } else if rt_gbuf() { 4 } else { 2 }],
+                color_formats: &color_formats[..if format != HDR_FORMAT { 1 } else if surfaces { 4 } else { 2 }],
                 depth_stencil: Some(wgpu::RenderBundleDepthStencil {
                     format: DEPTH_FORMAT,
                     depth_read_only: false,
@@ -453,8 +454,14 @@ pub(crate) struct ShadowRes {
     pub(crate) shadow_sampler: wgpu::Sampler,
     pub(crate) shadow_layout: wgpu::BindGroupLayout,
     /// [near opaque, near alpha-tested, far opaque, far alpha-tested, close opaque, close
-    /// alpha-tested], then the street lamps' (6 + 2 k + kind; not with `basic_pipelines`)
+    /// alpha-tested], then the lamps' (6 + kind; not with `basic_pipelines`)
     pub(crate) shadow_pipelines: Vec<wgpu::RenderPipeline>,
+    /// Where the lamps' tiles lie under the far cascade (the shaders read it from the
+    /// camera uniform).
+    pub(crate) lamp_atlas: LampAtlas,
+    /// The lamps' matrices as the window's last frame drew them: the mirrors look the tiles
+    /// up with them (see `Renderer::prepare_camera`).
+    pub(crate) lamp_matrices: std::cell::RefCell<Vec<Mat4>>,
     /// The far shadow cascade as last drawn: its light matrix, frames since, the render
     /// origin and the sun it was drawn for.
     pub(crate) shadow_far_cache: std::cell::Cell<(Mat4, u32, DVec3, Vec3)>,
@@ -472,6 +479,8 @@ pub(crate) struct ShadowRes {
     pub(crate) shadow_clear_pipeline: wgpu::RenderPipeline,
     /// What the street lamps' shadow tiles hold, kept while nothing in them changes.
     pub(crate) lamp_tiles: std::cell::Cell<passes::LampTiles>,
+    /// Which parts of the player's vehicle stand still in it (the saloon's lamp tiles hold those).
+    pub(crate) cabin_motion: std::cell::RefCell<passes::CabinMotion>,
     /// What stands over the ground round the camera, for the rain and the snow.
     pub(crate) precip: passes::PrecipMap,
 }
@@ -479,6 +488,7 @@ pub(crate) struct ShadowRes {
 /// What the views drew in their last frames, which the next frame's culling and bundles go by.
 pub(crate) struct ViewHistory {
     pub(crate) triple_culling: [ViewCulling; 3],
+    pub(crate) xr_culling: [ViewCulling; 2],
     /// `OMSI_DEBUG_FLICKER`: which near instances in view were drawn last frame.
     pub(crate) flicker: std::cell::RefCell<HashMap<usize, bool>>,
     /// The window's main-pass bundles as last recorded, with what they were made of (see

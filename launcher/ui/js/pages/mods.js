@@ -56,7 +56,7 @@ export function ModsPage() {
       const added = await call('add_hofs', { files });
       toast(added > 0 ? t('HOF files added for every bus.') : t('These HOF files were already there.'), 'ok');
     } catch (e) {
-      toast(e.message, 'error');
+      toast(t(e.message), 'error');
     }
     read();
     loadContent();
@@ -72,7 +72,7 @@ export function ModsPage() {
       const added = await call('share_map_hofs', { map });
       toast(added > 0 ? t('HOF files added for every bus.') : t('These HOF files were already there.'), 'ok');
     } catch (e) {
-      toast(e.message, 'error');
+      toast(t(e.message), 'error');
     }
     read();
     loadContent();
@@ -103,7 +103,7 @@ export function ModsPage() {
       read();
       loadContent();
     } catch (e) {
-      toast(e.message, 'error');
+      toast(t(e.message), 'error');
     }
   });
   const remove = async (m) => {
@@ -115,7 +115,7 @@ export function ModsPage() {
         read();
         loadContent();
       } catch (e) {
-        toast(e.message, 'error');
+        toast(t(e.message), 'error');
       }
     });
   };
@@ -130,7 +130,7 @@ export function ModsPage() {
       <div class="stack">
         ${status?.error && html`<${Notice} kind="danger">${status.error}</${Notice}>`}
         <${Card} title="Installed mods" actions=${html`<div class="row wrap" style="gap:8px;justify-content:flex-end">
-            ${status?.content_dir && html`<${Button} small icon="folder" label="Content folder" onClick=${() => call('open_path', { path: status.content_dir }).catch((e) => toast(e.message, 'error'))} />`}
+            ${status?.content_dir && html`<${Button} small icon="folder" label="Content folder" onClick=${() => call('open_path', { path: status.content_dir }).catch((e) => toast(t(e.message), 'error'))} />`}
             <div style="width:220px;max-width:100%"><${Search} value=${q} onInput=${setQ} placeholder="Search mods..." /></div>
           </div>`}>
           ${all.length > 0 && html`<div class="row wrap" style="margin-bottom:12px;gap:8px">
@@ -169,7 +169,7 @@ export function ModsPage() {
                   })}
                 </div>`}
         </${Card}>
-        ${status?.waiting?.length > 0 && html`<${Card} title="Waiting for their bus" hint="Packs installed before the bus they belong to: they go in once it is there.">
+        ${status?.waiting?.length > 0 && html`<${Card} title="Waiting for their bus" hint="Packs installed before the bus they belong to: they go in once it is there." actions=${html`<${Button} small kind="ghost" icon="alert" label="Details in Troubleshooting" onClick=${() => set({ page: 'troubleshoot' })} />`}>
           <div class="row wrap">${status.waiting.map((w) => html`<${Tag}>${w}</${Tag}>`)}</div>
         </${Card}>`}
         ${offers.map((o) => html`<${Notice} key=${o.map}><b>${t('Share the HOF files of {map} with every bus?', { map: o.map })}</b><div class="small selectable">${o.files.join(', ')}</div><div>${t("Every bus can then show this map's lines and destinations. Some maps have one HOF file per company or bus: sharing them can give buses with their own IBIS wrong destinations.")}</div><div class="row wrap" style="gap:8px;margin-top:6px"><${Button} small kind="primary" label="Share with every bus" onClick=${() => shareHofs(o.map)} /><${Button} small label="Not for this map" onClick=${() => decline(o.map)} /></div></${Notice}>`)}
@@ -198,7 +198,7 @@ export function ModsPage() {
             ${status && html`<div class="muted small">${t('Free space: {n}', { n: bytes(status.free_bytes) })}</div>`}
           </div>
         </${Card}>
-        <${Card} title="Installs" actions=${jobs.some((j) => !jobRunning(j)) && html`<${Button} small kind="ghost" label="Clear finished" onClick=${() => call('mods_clear_finished').then(pollNow).catch((e) => toast(e.message, 'error'))} />`}>
+        <${Card} title="Installs" actions=${jobs.some((j) => !jobRunning(j)) && html`<${Button} small kind="ghost" label="Clear finished" onClick=${() => call('mods_clear_finished').then(pollNow).catch((e) => toast(t(e.message), 'error'))} />`}>
           ${jobs.length === 0
             ? html`<p class="muted small">${t('Nothing installed since the launcher started. Big archives are checked against the free disk space before anything is unpacked; a cancelled or failed install leaves nothing behind.')}</p>`
             : html`<div class="stack">${jobs.map((j) => html`<${Job} j=${j} />`)}</div>`}
@@ -224,7 +224,7 @@ function Job({ j }) {
       ${active ? html`<${Spinner} />` : html`<span class=${'dot ' + (j.state === 'done' ? 'ok' : j.state === 'cancelled' ? '' : 'danger')}></span>`}
       <b class="grow ellipsis">${j.name}</b>
       <span class="muted small">${t(j.state)}</span>
-      ${active && html`<${Button} small kind="ghost" icon="x" title="Cancel" onClick=${() => call('mod_cancel', { id: j.id }).then(pollNow).catch((e) => toast(e.message, 'error'))} />`}
+      ${active && html`<${Button} small kind="ghost" icon="x" title="Cancel" onClick=${() => call('mod_cancel', { id: j.id }).then(pollNow).catch((e) => toast(t(e.message), 'error'))} />`}
     </div>
     ${active && html`<div class="progress"><div style=${`width:${pct.toFixed(1)}%`}></div></div>`}
     ${active && (j.files_total > 0 || j.bytes_total > 0) && html`<div class="muted small">${[j.files_total > 0 && t('{done} / {total} files', { done: j.files_done, total: j.files_total }), j.bytes_total > 0 && `${bytes(j.bytes_done)} / ${bytes(j.bytes_total)}`].filter(Boolean).join(' - ')}</div>`}

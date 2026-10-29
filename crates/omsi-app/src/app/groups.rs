@@ -6,6 +6,8 @@ use super::*;
 pub(crate) struct SoundState {
     /// The player's bus radio as internet radio.
     pub(crate) radio: radio::Radio,
+    /// The MileZero card on the navigator (settings `milezero`).
+    pub(crate) milezero: crate::milezero::Milezero,
     pub(crate) audio: Option<omsi_audio::AudioEngine>,
     /// Sounds of the world around the camera (rain, footsteps).
     pub(crate) ambience: Option<ambience::Ambience>,
@@ -97,6 +99,10 @@ pub(crate) struct Integrations {
     pub(crate) presence: Option<crate::presence::Presence>,
     /// The OMSI plugins (`plugins/*.opl`), loaded with the first frame.
     pub(crate) plugins: Option<omsi_plugin::Plugins>,
+    /// The vehicle (its file) whose `[vehicle_script]` scripts are running as plugins.
+    pub(crate) vehicle_scripts_of: Option<std::path::PathBuf>,
+    /// The scenery objects whose Lua scripts run (see `plugin_io::object`).
+    pub(crate) object_scripts: crate::plugin_io::object::ObjectScripts,
 }
 
 /// How the frames go and what is measured or scripted about them: the frame rate, the
@@ -142,12 +148,49 @@ pub(crate) struct PerfState {
     /// OMSI_PROFILE: the stages when the warm-up ended (15 s of play), and every frame's time
     /// since then (s), for the exit summary's percentiles (see `perf_report`).
     pub(crate) profile_mark: Option<crate::perf_report::ProfileMark>,
+    pub(crate) gpu_reported: bool,
     pub(crate) frame_times: Vec<f32>,
     /// Each kept frame's stage times, `ProfKey::ALL` in order (seconds; OMSI_PROFILE only).
     pub(crate) frame_stages: Vec<f32>,
+    /// OMSI_PROFILE: the session's summary has been written (`App::log_profile_summary`).
+    pub(crate) profile_written: bool,
     pub(crate) overlay: crate::perf_overlay::PerfOverlay,
     pub(crate) texture_cut_at: Option<Instant>,
     pub(crate) optimiser: crate::optimiser::Optimiser,
+}
+
+impl PerfState {
+    /// Nothing measured yet: the `OMSI_INPUT` script to play and when the frame count began.
+    pub(crate) fn new(input_script: Vec<(f32, String)>, fps_t: Instant) -> PerfState {
+        PerfState {
+            fps: 0.0,
+            profile: Default::default(),
+            profile_prev: Default::default(),
+            total_frames: 0,
+            input_script,
+            shot: None,
+            frames: 0,
+            fps_t,
+            log_state: Default::default(),
+            spikes: 0,
+            worst_ms: 0.0,
+            governor: (0.0, 0, 0.0),
+            governor_low: 0,
+            governor_wait_prev: 0.0,
+            play_started: None,
+            cpu_mark: None,
+            thread_cpu_mark: None,
+            instructions_mark: None,
+            profile_mark: None,
+            gpu_reported: false,
+            profile_written: false,
+            frame_times: Vec::new(),
+            frame_stages: Vec::new(),
+            overlay: crate::perf_overlay::new(),
+            texture_cut_at: None,
+            optimiser: Default::default(),
+        }
+    }
 }
 
 /// The drawing around the renderer: the wgpu instance and surface, the tile streaming, the
@@ -201,6 +244,9 @@ pub(crate) struct ViewState {
     /// OMSI's pedestrian ("ego") view: the free camera walking at eye height on whatever
     /// people stand on (`view_set_ego`, F11).
     pub(crate) ego: bool,
+    /// The player's flashlight is on (Alt+F, `flashlight` in keyboard.cfg's `[game]`): a lamp
+    /// held at the eye that shines where the view looks, in every view.
+    pub(crate) flashlight: bool,
     /// The camera is in the own bus's cab this frame (see RedrawRequested).
     pub(crate) in_cab: bool,
     /// How far the player has turned the head (driver, passenger) or swung the outside
@@ -271,6 +317,8 @@ pub(crate) struct InputState {
     pub(crate) arrow_glance: bool,
     /// Head tracking (Settings → head tracking), started with the first frame that wants it.
     pub(crate) headtrack: Option<crate::headtrack::HeadTracker>,
+    /// The head tracker's pose made calm for the camera, frame by frame.
+    pub(crate) head_filter: crate::head_filter::HeadFilter,
     /// When head tracking last failed to start (tried again a few seconds later).
     pub(crate) headtrack_failed: Option<std::time::Instant>,
     /// Last TrackIR/OpenTrack output scales, used to keep the displayed camera position
@@ -400,6 +448,10 @@ pub(crate) struct MenuState {
     /// The digits of a time being typed in the world page of the game menu (None: not typing).
     pub(crate) menu_edit: Option<String>,
     pub(crate) menu_edit_icao: bool,
+    /// The fleet number being edited in the vehicle page
+    pub(crate) menu_edit_number: bool,
+    /// The plate being edited in the vehicle page
+    pub(crate) menu_edit_ident: bool,
     /// `menu_edit` is the search of the open list being typed (see `game_lists::searchable`).
     pub(crate) menu_edit_search: bool,
     /// The search the open list is filtered by (empty: none).

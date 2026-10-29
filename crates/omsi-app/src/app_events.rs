@@ -102,6 +102,7 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if self.process_permission_event(event_loop, &event) { return; }
         match event {
             WindowEvent::CloseRequested => {
                 self.finish_vr_nav_edit();
@@ -186,6 +187,12 @@ impl ApplicationHandler for App {
                 if event.state == ElementState::Pressed && self.menus.menu_edit_icao {
                     if let Some(text)=event.text.as_deref(){ self.icao_edit_text(text); }
                 }
+                if event.state == ElementState::Pressed && self.menus.menu_edit_number {
+                    if let Some(text)=event.text.as_deref(){ self.number_edit_text(text); }
+                }
+                if event.state == ElementState::Pressed && self.menus.menu_edit_ident {
+                    if let Some(text)=event.text.as_deref(){ self.ident_edit_text(text); }
+                }
                 // Route numbers are free display text in OMSI. Take the text produced by
                 // the keyboard layout (rather than only the physical key) so '-', shifted
                 // symbols and non-US layouts reach the destination display unchanged.
@@ -201,6 +208,8 @@ impl ApplicationHandler for App {
                         }
                     }
                 }
+                // a MileZero song request being typed takes the keyboard
+                if self.milezero_typing(&event) { return; }
                 // '/' opens the chat's input box wherever the keyboard has it (the key
                 // itself is then swallowed by the chat) - but not Numpad ÷, OMSI's stock
                 // front door key (keyboard.cfg `bus_doorfront0 181`)
@@ -476,6 +485,8 @@ impl ApplicationHandler for App {
     /// quit signal): the session is written and the LAN peers hear that we left, before
     /// anything else is torn down (Cmd+Q ends the process without returning from the loop).
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        // (OMSI_PROFILE: the summary when the player closes the game, not only after --exit-after)
+        self.log_profile_summary();
         crate::game_lists::flush_settings(true);
         self.abort_optimiser();
         self.finish_session();
@@ -506,6 +517,7 @@ impl App {
 
     /// The mouse wheel (or a pinch of two fingers): `amount` notches, up positive.
     pub(crate) fn wheel(&mut self, amount: f32) {
+        if self.has_process_permission_prompt() { self.shell.wheel(amount); return; }
         let sim = self.player_to_drawn_pose();
         self.wheel_now(amount);
         self.player_back_to_sim_pose(sim);
@@ -576,7 +588,13 @@ impl App {
         // (not while the wheel is zooming: the zoom moved the switches under the cursor, and
         // the wheel's next notch turned one instead of zooming on, #1224)
         let zooming = wheel_goes_on(self.input.wheel_zoomed_at, std::time::Instant::now());
-        if self.menus.hover.is_some() && self.view != "free" && !zooming {
+        // The headset pointer can move with the head without a CursorMoved event.
+        // Pick its current ray directly; a stale hover label or desktop zoom
+        // cooldown must not swallow the wheel over a VR cockpit control.
+        let vr_cockpit = self.vr_active()
+            && !self.input.mouse_drive
+            && matches!(self.view.as_str(), "driver" | "pax");
+        if self.view != "free" && ((self.menus.hover.is_some() && !zooming) || vr_cockpit) {
             let ray = self.camera.as_ref().zip(self.gfx.surface.as_ref())
                 .map(|(cam, s)| self.cockpit_cursor_ray(cam, (s.config.width, s.config.height)));
             if let (Some(p), Some((o, d, spread))) = (
@@ -588,7 +606,8 @@ impl App {
                     // a notch is worth a good push of the mouse: the scripts divide
                     // the movement by 10 (the ignition key), 200 (the parking brake)
                     // or 500 (the driver's window), so a few pixels would do nothing
-                    p.wheel(o, d, spread, -amount * 40.0);
+                    if vr_cockpit { p.wheel_precise(o, d, spread, -amount * 40.0); }
+                    else { p.wheel(o, d, spread, -amount * 40.0); }
                     return;
                 }
             }
@@ -625,6 +644,7 @@ impl App {
 
     /// The left mouse button (or a finger's tap) where the cursor is.
     pub(crate) fn left_button(&mut self, event_loop: &ActiveEventLoop, pressed: bool) {
+        if self.has_process_permission_prompt() { self.shell.button(pressed); return; }
         if let Some(edit) = self.xr.vr_nav_edit.as_mut() { edit.moving = pressed; return; }
         // the pause menu (and the photo mode) of the launcher's toolkit take the clicks
         if self.shell_takes_mouse() {

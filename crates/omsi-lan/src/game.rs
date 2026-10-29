@@ -173,6 +173,15 @@ pub struct RemoteVehicle {
 }
 
 impl RemoteVehicle {
+    /// Same bus/schema authorization as scripttex, including compatible name mappings.
+    pub fn freetex_subscription_table(&self) -> Option<u32> {
+        if self.stand_in || self.fallback || (self.remote_schema.is_some() && self.vars.is_none()) {
+            return None;
+        }
+        // `sync_vars` has already checked the schema and authorized this owner's table.
+        // Do not rehash the whole Program on every render frame.
+        Some(crate::script_texture::script_texture_table_for_vars(&self.made_as.0, self.vars.as_ref()?.hash, &[]))
+    }
     /// The LAN player's vehicle as it is drawn here.
     pub fn vehicle(&self) -> &omsi_sim::VehicleInstance {
         &self.vehicle
@@ -982,27 +991,24 @@ fn write_status(lan: &LanSession, game: &LanGame, player: Option<&omsi_sim::Vehi
 }
 
 /// "35 m ahead", "1.2 km behind", "12 m to the left" - where `pose` is seen from our bus.
-fn relative_position(me: &omsi_sim::VehicleInstance, pose: &Pose) -> String {
+fn relative_position(me: &omsi_sim::VehicleInstance, pose: &Pose) -> serde_json::Value {
     let d = DVec3::new(pose.x, pose.y, pose.z) - me.position;
     let dist = d.truncate().length();
     let h = me.heading.to_radians();
     let (fwd, right) = (d.x * h.sin() + d.y * h.cos(), d.x * h.cos() - d.y * h.sin());
-    let side = if fwd.abs() >= right.abs() {
-        if fwd >= 0.0 {
-            "ahead"
-        } else {
-            "behind"
-        }
-    } else if right >= 0.0 {
-        "to the right"
-    } else {
-        "to the left"
+    let km = dist >= 1000.0;
+    let key = match (fwd.abs() >= right.abs(), fwd >= 0.0, right >= 0.0, km) {
+        (true, true, _, true) => "{d} km ahead",
+        (true, true, _, false) => "{d} m ahead",
+        (true, false, _, true) => "{d} km behind",
+        (true, false, _, false) => "{d} m behind",
+        (false, _, true, true) => "{d} km to the right",
+        (false, _, true, false) => "{d} m to the right",
+        (false, _, false, true) => "{d} km to the left",
+        (false, _, false, false) => "{d} m to the left",
     };
-    if dist >= 1000.0 {
-        format!("{:.1} km {side}", dist / 1000.0)
-    } else {
-        format!("{dist:.0} m {side}")
-    }
+    let d = if km { format!("{:.1}", dist / 1000.0) } else { format!("{dist:.0}") };
+    serde_json::json!({ "key": key, "d": d })
 }
 
 /// The other players for the navigator and the city map (#1011, #1080); `my_id` is ours.
@@ -2745,7 +2751,11 @@ pub fn hud_lines(lan: &LanSession, tr: &dyn Fn(&str) -> String) -> Vec<String> {
         }
     }
     if let Some(w) = lan.warnings.first() {
-        lines.push(tr("Online: {warning}").replace("{warning}", &tr(w)));
+        let w = match w.strip_prefix("Host's mods could not be fetched: ") {
+            Some(e) => tr("Host's mods could not be fetched: {e}").replace("{e}", &tr(e)),
+            None => tr(w),
+        };
+        lines.push(tr("Online: {warning}").replace("{warning}", &w));
     }
     // OMSI_DEBUG_LAN: what the HUD shows, every few seconds
     if omsi_cfg::flags::OMSI_DEBUG_LAN.is_set() {

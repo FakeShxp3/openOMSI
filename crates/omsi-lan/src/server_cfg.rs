@@ -393,7 +393,7 @@ pub fn enforce_vehicles(lan: &mut omsi_net::LanSession) {
     for (id, bus) in out {
         log::warn!("server: player {id} drives {bus}, which the vehicles list does not allow: sent away");
         let names: Vec<&str> = list.iter().map(|v| v.rsplit('/').next().unwrap_or(v)).collect();
-        lan.kick(id, &format!("this server allows only these buses: {}", names.join(", ")), false);
+        lan.kick(id, &format!("this server allows only these buses ({})", names.join(", ")), false);
     }
 }
 
@@ -543,7 +543,10 @@ mod cfg_tests {
     use super::{ServerCfg, DEFAULT_CFG};
 
     fn load(text: &str) -> ServerCfg {
-        let dir = std::env::temp_dir().join(format!("omsi-server-cfg-{}-{}", std::process::id(), text.len()));
+        // Both tests load DEFAULT_CFG concurrently; length is not a unique fixture ID.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("omsi-server-cfg-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("server.cfg");
         std::fs::write(&path, text).unwrap();

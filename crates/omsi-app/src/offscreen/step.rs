@@ -285,6 +285,7 @@ impl Offscreen<'_> {
     /// The player's duty and the personnel file.
     pub(super) fn duty_step(&mut self) {
         let (args, dt) = (self.args, self.dt);
+        let announce = self.settings.auto_announce;
         let Self {
             ref mut player,
             ref mut duty,
@@ -310,6 +311,7 @@ impl Offscreen<'_> {
                 Some(run_clock),
                 true,
                 Some(&mut events),
+                announce,
             );
             for e in events {
                 log::info!("plugin event: {e:?}");
@@ -354,6 +356,7 @@ impl Offscreen<'_> {
         if let Some(tv) = player.trolley_view.as_mut() {
             tv.update(&self.renderer, &mut self.scene, dt, &mut player.vehicle);
         }
+        player.panto_fx.update(dt, &mut player.vehicle);
         let (vpos, vkmh) = (player.vehicle.position, player.vehicle.physics.velocity_kmh());
         if let Some(g) = player.vehicle.trolley.as_deref_mut() {
             for n in g.rig.take_notes() {
@@ -804,6 +807,7 @@ impl Offscreen<'_> {
                     }
                 }
             }
+            sim_view.lan.capture_freetex(player.as_ref(), &args.root);
             let sent = {
                 let traffic = traffic.as_ref();
                 let cars = || traffic.map(|t| t.cars.iter().map(|c| lan::car_footprint(&c.vehicle)).collect()).unwrap_or_default();
@@ -839,6 +843,7 @@ impl Offscreen<'_> {
                 &frame,
             );
             crate::view_sync::apply_lan(remotes_off, &mut sim_view.lan, world, renderer, scene, lan_audio.as_ref(), &frame, dt);
+            sim_view.lan.sync_freetex(l, remotes_off, renderer, scene, &args.root);
             for u in updates {
                 if let (lan::WorldUpdate::Tours(tours), Some(s)) = (u, schedule.as_mut()) {
                     s.set_lan_tours(tours);
@@ -857,6 +862,7 @@ impl Offscreen<'_> {
             ref mut spray,
             ref mut cabin_air,
             ref mut wetness,
+            ref renderer,
             ref traffic,
             ref player,
             ref camera,
@@ -896,6 +902,8 @@ impl Offscreen<'_> {
             steps::throw_spray(spray, dt, player.as_ref(), traffic.as_ref(), remotes_off, eye, steps::spray_wind(weather), world, spray_wet, world.settings.rain_quality());
         }
         *wetness = crate::weather_setup::road_wetness(precip_of(weather).1, dt as f64, *wetness);
+        let (v, eye) = (omsi_scene::road_snow::vehicles(player.as_ref().map(|p| &p.vehicle), traffic.as_deref()), player.as_ref().map_or(camera.position, |p| p.vehicle.position));
+        omsi_scene::road_snow::frame(renderer, dt, Some(weather), eye, traffic.as_ref().map(|t| &t.net), &v);
     }
 
     /// A snapshot due at `t_s` (`--snapshots`).

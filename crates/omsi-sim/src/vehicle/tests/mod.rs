@@ -7,7 +7,9 @@ use std::sync::Arc;
 mod articulation;
 mod fuel;
 mod model_variables;
+mod rail_power;
 mod scripts_props;
+mod trams;
 
 #[test]
 fn velocity_is_the_driven_wheels_speed() {
@@ -44,6 +46,7 @@ pub(super) fn coupling_test_type(boogies: Option<f32>) -> Arc<VehicleType> {
         model_dir: PathBuf::new(),
         program: Arc::new(Program::default()),
         meshes: Vec::new(),
+        lod_meshes: Vec::new(),
         paint_schemes: Vec::new(),
         texchanges: Vec::new(),
         wheel_meshes: Vec::new(),
@@ -749,6 +752,7 @@ fn restored_display_vehicle() -> VehicleInstance {
         model_dir: dir.clone(),
         program: Arc::new(program),
         meshes: Vec::new(),
+        lod_meshes: Vec::new(),
         paint_schemes: Vec::new(),
         texchanges: Vec::new(),
         wheel_meshes: Vec::new(),
@@ -905,6 +909,7 @@ fn a_scheme_folder_supplies_only_what_its_cti_names() {
         model_dir: dir.clone(),
         program: Arc::new(omsi_script::compile(&omsi_script::CompileInput::default())),
         meshes: Vec::new(),
+        lod_meshes: Vec::new(),
         paint_schemes: vec![PaintScheme {
             name: "Yellow".into(),
             dir: dir.clone(),

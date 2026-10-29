@@ -2,6 +2,8 @@
 //! houses standing in 3D (or flat, the `nav_3d` setting), the route over the roads, the traffic,
 //! and cards floating over it after Apple Maps' driving view - the next turn top left, the time
 //! and temperatures top right, the speed and its limit bottom left, the next stop at the bottom.
+//! Under a plugin's panel that fills the frame (`frame_panel`) the card alone, in the panel's
+//! colour where it gives one, and the map where that panel says, with its own corners.
 
 use super::mapmesh::GroundLook;
 use super::style::{self, Palette};
@@ -34,12 +36,19 @@ impl Navigator {
     pub(super) fn draw(&mut self, renderer: &Renderer, target: &wgpu::TextureView, size: (u32, u32), map_h: f32, f: &NavFrame) {
         let (pw, ph) = (size.0 as f32, size.1 as f32);
         let s = pw / 360.0;
-        let wd = words(f.language);
+        let wd = &WORDS;
         let pal = *style::palette(self.light);
         self.atlas.begin_frame();
         let panel = Rect::new(0.0, 0.0, pw, ph);
         let radius = (14.0 * s).max(10.0);
-        let map = Rect::new(0.0, 0.0, pw, map_h);
+        // (under a plugin's panel in the whole frame: its map where it says, rounded as a card
+        // of its own, or no map at all)
+        let (map, cards, map_radius) = match self.framed {
+            Some(Some((r, cards))) => (r, cards, (10.0 * s).min(radius)),
+            Some(None) => return self.draw_card_alone(renderer, target, size, &pal, radius),
+            None => (Rect::new(0.0, 0.0, pw, map_h), true, radius),
+        };
+        let framed = self.framed.is_some();
         let vp = [map.x, map.y, map.w, map.h];
 
         // --- the ground (buffer 0): built again when the bus went far, tiles brought lanes,
@@ -70,15 +79,27 @@ impl Navigator {
         }
         if rebuild && self.panel_job.is_none() && built.is_none() {
             let anchor = f.bus.truncate();
-            let parts = self.ground_parts(net, None);
-            let look = GroundLook { surfaces: true, trees: true, dashes: true };
+            let mut parts = self.ground_parts(net, None);
+            // The older-style navigator needs only roads and route data.
+            // Skip terrain meshes, map packages, buildings and their shadows entirely.
+            if self.classic_2d {
+                parts.md = None;
+                parts.surface = None;
+            }
+            let look = if self.classic_2d {
+                GroundLook { surfaces: false, trees: false, dashes: false, tol: 1.0 }
+            } else {
+                GroundLook { surfaces: true, trees: true, dashes: true, tol: 0.0 }
+            };
             let reach = PANEL_REACH;
+            let paved = !self.classic_2d;
+            let models = (!self.classic_2d).then_some(PANEL_MODELS);
             if self.global.is_some() {
                 let pal2 = pal;
                 let device = renderer.device.clone();
-                self.panel_job = Some(super::build::Job::start((look_key, lanes_now), move || super::build::build(&parts, anchor, reach, &pal2, look, true, Some(PANEL_MODELS)).made_on(&device)));
+                self.panel_job = Some(super::build::Job::start((look_key, lanes_now), move || super::build::build(&parts, anchor, reach, &pal2, look, paved, models).made_on(&device)));
             } else {
-                let mut b = super::build::build(&parts, anchor, reach, &pal, look, true, Some(PANEL_MODELS));
+                let mut b = super::build::build(&parts, anchor, reach, &pal, look, paved, models);
                 let [_, houses @ ..] = b.counts;
                 self.roads = Some(Roads { look: look_key, anchor, lanes_seen: lanes_now, houses, runs: std::mem::take(&mut b.runs), built_at: self.time });
                 built = Some(b);
@@ -91,12 +112,13 @@ impl Navigator {
         let hd = self.cam_heading.to_radians();
         let fwd = DVec2::new(hd.sin(), hd.cos());
         let look_at = f.bus.truncate() - anchor + fwd * self.zoom * 0.17;
-        let pitch = (if self.show_3d { PITCH } else { PITCH + 8.0 }).to_radians();
+        let pitch = (if self.classic_2d { 90.0 } else if self.show_3d { PITCH } else { PITCH + 8.0 }).to_radians();
         let back = fwd * self.zoom * pitch.cos();
         let eye = DVec3::new(look_at.x - back.x, look_at.y - back.y, self.zoom * pitch.sin());
-        let view = Mat4::look_at_rh(eye.as_vec3(), Vec3::new(look_at.x as f32, look_at.y as f32, 0.0), Vec3::Z);
+        let up = if self.classic_2d { Vec3::new(fwd.x as f32, fwd.y as f32, 0.0) } else { Vec3::Z };
+        let view = Mat4::look_at_rh(eye.as_vec3(), Vec3::new(look_at.x as f32, look_at.y as f32, 0.0), up);
         let clip_panel = [0.0, 0.0, pw, ph];
-        let map_layer = Layer::world(view, FOV.to_radians(), vp, [map.x, map.y, map.right(), map.bottom()], radius, 1.0);
+        let map_layer = Layer::world(view, FOV.to_radians(), vp, [map.x, map.y, map.right(), map.bottom()], map_radius, 1.0);
         let depth_layer = map_layer.with_depth();
         let vpm = map_layer.view_proj;
 
@@ -121,7 +143,12 @@ impl Navigator {
 
         // --- the land colour under everything, the traffic, the vehicles
         let mut bg = Painter::new();
-        bg.rounded(panel, radius, pal.land);
+        if framed {
+            bg.rounded(panel, radius, self.frame_card.unwrap_or(pal.card));
+            bg.rounded(map, map_radius, pal.land);
+        } else {
+            bg.rounded(panel, radius, pal.land);
+        }
         let n_bg = bg.len();
         let mut dy = Painter::new();
         // other roads where the traffic is slow or stands: a band in its colour beside the
@@ -169,10 +196,17 @@ impl Navigator {
         self.draw_destination_markers(&mut ui, &|q| project(vpm, vp, Vec3::new((q.x - anchor.x) as f32, (q.y - anchor.y) as f32, 0.0)), map, s, false, &pal);
         // the package's places: its icons on the map, the municipality and the street under it
         let icon_verts = self.minimap_icons(vpm, vp, anchor, f.bus.truncate(), map, s);
-        let loc_h = self.place_row_height(s);
-        self.draw_place_row(&mut ui, Rect::new(0.0, map.bottom(), pw, loc_h), 10.0 * s, s);
-        self.draw_cards(&mut ui, f, &wd, net, map, s, &pal);
-        if self.schedule {
+        // (the place row, the cards and the stop list: the plugin's panel has the rest of the
+        // frame, and says whether the cards go over its map)
+        if !framed {
+            let loc_h = self.place_row_height(s);
+            self.draw_place_row(&mut ui, Rect::new(0.0, map.bottom(), pw, loc_h), 10.0 * s, s);
+        }
+        if cards {
+            self.draw_cards(&mut ui, f, wd, net, map, s, &pal);
+        }
+        if self.schedule && !framed {
+            let loc_h = self.place_row_height(s);
             let r = Rect::new(0.0, map.bottom() + loc_h, pw, ph - map.bottom() - loc_h);
             match self.board {
                 // (a plugin's board: its panel is drawn over the card here)
@@ -180,14 +214,7 @@ impl Navigator {
                 None => self.draw_schedule(&mut ui, f, r, s, &pal),
             }
         }
-        if self.widget {
-            // the corner to pull for another size
-            let c = Vec2::new(pw - 7.0 * s, ph - 7.0 * s);
-            for k in 0..3 {
-                let o = (k as f32 * 4.0 + 3.0) * s;
-                ui.line(c + Vec2::new(-o, 0.0), c + Vec2::new(0.0, -o), 1.4 * s, pal.card_dim.alpha(0.7));
-            }
-        }
+        self.draw_grip(&mut ui, pw, ph, s, &pal);
 
         // --- to the GPU
         let (Some(gpu), device, queue) = (self.gpu.as_mut(), &renderer.device, &renderer.queue) else { return };
@@ -208,13 +235,16 @@ impl Navigator {
         let (icon_n, icon_tex) = self.place.upload(gpu, device, queue, 16, &icon_verts);
         gpu.upload_atlas(queue, &mut self.atlas);
         let flat = Layer::flat(clip_panel, radius, 1.0);
-        let backdrop = Layer::flat(clip_panel, radius, if self.cockpit_display { self.opacity } else { omsi_ui::theme::backdrop(self.opacity).min(1.0) });
+        let backdrop = Layer::flat(clip_panel, radius, if self.cockpit_display { 1.0 } else { omsi_ui::theme::backdrop(self.opacity).min(1.0) });
         let mut layers = [flat, map_layer, map_layer.with_shadow(), depth_layer, depth_layer, backdrop];
+        // The cockpit setting fades the map and its labels too; opaque map geometry
+        // would otherwise cover the background whose opacity was changed.
+        let opacity = self.shown * if self.cockpit_display { self.opacity } else { 1.0 };
         for l in layers.iter_mut() {
-            l.opacity *= self.shown;
+            l.opacity *= opacity;
         }
         let solid_n = self.roads.as_ref().map_or(0, |r| r.houses[1] as u32);
-        let three = self.show_3d;
+        let three = self.show_3d && !self.classic_2d;
         let route_n = self.route_mesh.3;
         let mpp = map_layer.px_scale * self.zoom as f32 * 4.0;
         let seen = |part: usize, on: bool| match (&self.roads, on) {
@@ -232,6 +262,44 @@ impl Navigator {
             Draw { buffer: 16, range: 0..icon_n, layer: 0, texture: icon_tex },
             Draw { buffer: 2, range: n_ui_start..all.len() as u32, layer: 0, texture: 0 },
         ]);
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("navigator") });
+        gpu.render(device, queue, &mut enc, target, size, Some(wgpu::Color::TRANSPARENT), &layers, &draws);
+        queue.submit([enc.finish()]);
+    }
+
+    /// The corner to pull for another size, on a navigator that is a widget.
+    fn draw_grip(&self, ui: &mut Painter, pw: f32, ph: f32, s: f32, pal: &Palette) {
+        if !self.widget {
+            return;
+        }
+        let c = Vec2::new(pw - 7.0 * s, ph - 7.0 * s);
+        for k in 0..3 {
+            let o = (k as f32 * 4.0 + 3.0) * s;
+            ui.line(c + Vec2::new(-o, 0.0), c + Vec2::new(0.0, -o), 1.4 * s, pal.card_dim.alpha(0.7));
+        }
+    }
+
+    /// The card alone, under a plugin's panel that fills the frame and has no map: nothing of
+    /// the map is built or drawn.
+    fn draw_card_alone(&mut self, renderer: &Renderer, target: &wgpu::TextureView, size: (u32, u32), pal: &Palette, radius: f32) {
+        let (pw, ph) = (size.0 as f32, size.1 as f32);
+        let s = pw / 360.0;
+        let mut bg = Painter::new();
+        bg.rounded(Rect::new(0.0, 0.0, pw, ph), radius, self.frame_card.unwrap_or(pal.card));
+        let n_bg = bg.len();
+        let mut ui = Painter::new();
+        self.draw_grip(&mut ui, pw, ph, s, pal);
+        let (Some(gpu), device, queue) = (self.gpu.as_mut(), &renderer.device, &renderer.queue) else { return };
+        let mut all = bg.verts;
+        all.extend(ui.verts);
+        gpu.upload(device, queue, 2, &all);
+        let clip = [0.0, 0.0, pw, ph];
+        let opacity = self.shown * if self.cockpit_display { self.opacity } else { 1.0 };
+        let mut layers = [Layer::flat(clip, radius, 1.0), Layer::flat(clip, radius, omsi_ui::theme::backdrop(self.opacity).min(1.0))];
+        for l in layers.iter_mut() {
+            l.opacity *= opacity;
+        }
+        let draws = [Draw { buffer: 2, range: 0..n_bg, layer: 1, texture: 0 }, Draw { buffer: 2, range: n_bg..all.len() as u32, layer: 0, texture: 0 }];
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("navigator") });
         gpu.render(device, queue, &mut enc, target, size, Some(wgpu::Color::TRANSPARENT), &layers, &draws);
         queue.submit([enc.finish()]);
@@ -358,12 +426,12 @@ impl Navigator {
             None
         };
         let jam_note = (self.jam_cost >= 30.0).then(|| {
-            let what = if self.jam_cost >= 60.0 { wd.jam } else { wd.slow };
-            (format!("{what} +{:.0} {}", (self.jam_cost / 60.0).max(1.0).round(), omsi_ui::tr("min")), if self.jam_cost >= 60.0 { style::TRAFFIC[2] } else { style::TRAFFIC[1] })
+            let n = (self.jam_cost / 60.0).max(1.0).round();
+            (if self.jam_cost >= 60.0 { format!("Traffic jam +{n:.0} min") } else { format!("Slow traffic +{n:.0} min") }, if self.jam_cost >= 60.0 { style::TRAFFIC[2] } else { style::TRAFFIC[1] })
         });
         match f.stops.first() {
             Some(st) => {
-                let name = if f.stops.len() == 1 { format!("{} · {}", st.name.trim(), wd.last_stop) } else { st.name.trim().to_string() };
+                let name = if f.stops.len() == 1 { format!("{} · {}", st.name.trim(), omsi_ui::tr(wd.last_stop)) } else { st.name.trim().to_string() };
                 let line_w = match f.line.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
                     Some(l) => {
                         let px = 11.0 * s;
@@ -391,11 +459,11 @@ impl Navigator {
                 parts.push(format!("{:02}:{:02}", (st.arrival / 3600.0) as i32 % 24, ((st.arrival % 3600.0) / 60.0) as i32));
                 let line2 = parts.join(" · ");
                 // (closed: the way round in place of the distance)
-                let closed = st.closed.as_deref().map(|via| if via.is_empty() { wd.closed.to_string() } else { format!("{} · {via}", wd.closed) });
+                let closed = st.closed.as_deref().map(|via| if via.is_empty() { wd.closed.to_string() } else { format!("{} · {via}", omsi_ui::tr(wd.closed)) });
                 let (text, col) = match (&closed, &note, &jam_note) {
                     (Some(t), _, _) => (t.clone(), WARN),
                     (None, Some((t, c)), _) => (t.clone(), *c),
-                    (None, None, Some((t, c))) => (format!("{line2} · {t}"), *c),
+                    (None, None, Some((t, c))) => (format!("{line2} · {}", omsi_ui::tr(t)), *c),
                     _ => (line2, pal.card_dim),
                 };
                 let mut right = 0.0;
@@ -439,7 +507,6 @@ impl Navigator {
         ui.circle(c + Vec2::new(0.0, 1.5 * s), r + 1.0 * s, Color::rgba(0, 0, 0, 0.14));
         ui.circle(c, r, pal.card);
         let sp = format!("{speed:.0}");
-        let unit = if units == omsi_ui::units::Units::Metric { wd.kmh } else { unit };
         ui.text(&mut self.atlas, &self.fonts, &sp, 17.0 * s, Weight::Bold, Vec2::new(c.x, c.y + 3.0 * s), Align::Center, if over { style::TRAFFIC[2] } else { pal.card_text });
         ui.text(&mut self.atlas, &self.fonts, unit, 7.5 * s, Weight::Medium, Vec2::new(c.x, c.y + 12.0 * s), Align::Center, pal.card_dim);
         if let Some(v) = limit {
@@ -486,7 +553,7 @@ impl Navigator {
 
     /// A key that changes with everything the ground's look depends on.
     pub(super) fn look_key(&self) -> u64 {
-        (self.light as u64) | (self.show_3d as u64) << 1 | (self.show_surface as u64) << 2 | self.surface_version << 3 | (self.map_version << 20) | (self.roads_version << 36)
+        (self.light as u64) | (self.show_3d as u64) << 1 | (self.show_surface as u64) << 2 | (self.classic_2d as u64) << 15 | self.surface_version << 3 | (self.map_version << 20) | (self.roads_version << 36)
     }
 }
 

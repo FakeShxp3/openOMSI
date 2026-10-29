@@ -1,3 +1,4 @@
+import { CabinTemperatureOption } from '../pages/drive-day.js';
 // The launcher on a phone: a layout of its own for a landscape phone and a finger, on the
 // same data and commands as the desktop launcher. A rail of icons on the left; Drive is the
 // bus turning on the left half with the Start button over it, and the duty as a list of rows
@@ -10,16 +11,18 @@ import { Icon } from '../icons.js';
 import { Spinner, Toggle, Slider } from '../ui.js';
 import { BusPreview } from '../preview.js';
 import { RouteMap } from '../routemap.js';
-import { choose, curMap, curBus, curLine, curTour, pickedTrip, realTime, realDate, start, weatherName, weatherOfItsOwn, askJoined, noServerBus, mapName, serverBuses, busFile } from '../data.js';
-import { hms, mapPicture, tripAt, depotRun, pickTrip, lineMatches, findTours, chooseLine, chooseTour, setSeason, localNow, SEASONS, PHASES, TripEnds, weatherFacts, entryName } from '../pages/drive.js';
+import { tourId, choose, curMap, curBus, curLine, curTour, pickedTrip, realTime, realDate, start, weatherName, weatherOfItsOwn, askJoined, noServerBus, mapName, serverBuses, busFile, transportRefusal } from '../data.js';
+import { hms, mapPicture, tripAt, depotRun, pickTrip, lineMatches, findTours, chooseLine, chooseTour, setSeason, localNow, SEASONS, PHASES, TripEnds, tripTime, weatherFacts, entryName } from '../pages/drive.js';
 import { MultiplayerPage } from '../pages/multiplayer.js';
 import { ProfilePage } from '../pages/profile.js';
 import { ModsPage } from '../pages/mods.js';
+import { TroubleshootPage, problems } from '../pages/troubleshoot.js';
 import { SettingsPage } from '../pages/settings.js';
 import { ControlsPage } from '../pages/controls.js';
 import { GamesPage } from '../pages/games.js';
 import { TutorialsPage } from '../pages/tutorials.js';
 import { SetupPage } from '../pages/setup.js';
+import { AddonsPage } from '../pages/addons.js';
 
 const TABS = [
   ['drive', 'Drive', 'bus'],
@@ -33,12 +36,12 @@ const TABS = [
 export function MobileApp() {
   const s = useStore();
   // (the keys and the game controllers open from Settings, #2308: they fell back to Drive)
-  const page = TABS.some((x) => x[0] === s.page) || ['games', 'tutorials', 'setup', 'controls'].includes(s.page) ? s.page : 'drive';
-  const Body = { drive: MobileDrive, multiplayer: MultiplayerPage, profile: ProfilePage, mods: ModsPage, settings: SettingsPage, more: More, games: GamesPage, tutorials: TutorialsPage, setup: SetupPage, controls: ControlsPage }[page];
+  const page = TABS.some((x) => x[0] === s.page) || ['games', 'tutorials', 'setup', 'controls', 'addons', 'troubleshoot'].includes(s.page) ? s.page : 'drive';
+  const Body = { drive: MobileDrive, multiplayer: MultiplayerPage, profile: ProfilePage, mods: ModsPage, troubleshoot: TroubleshootPage, settings: SettingsPage, more: More, games: GamesPage, tutorials: TutorialsPage, setup: SetupPage, controls: ControlsPage, addons: AddonsPage }[page];
   const running = s.poll.instances?.length || 0;
   return html`<div class="m-shell">
     <nav class="m-rail">
-      ${TABS.map(([id, label, icon]) => html`<button class=${'m-tab' + (page === id || (id === 'more' && ['games', 'tutorials', 'setup'].includes(page)) || (id === 'settings' && page === 'controls') ? ' on' : '')} onClick=${() => set({ page: id })}>
+      ${TABS.map(([id, label, icon]) => html`<button class=${'m-tab' + (page === id || (id === 'more' && ['games', 'tutorials', 'setup', 'addons', 'troubleshoot'].includes(page)) || (id === 'settings' && page === 'controls') ? ' on' : '')} onClick=${() => set({ page: id })}>
         <${Icon} name=${icon} size=${22} /><span>${t(label)}</span>${id === 'more' && running > 0 && html`<i class="m-dot"></i>`}
       </button>`)}
     </nav>
@@ -56,8 +59,10 @@ function More() {
     <h1 class="m-title">${t('More')}</h1>
     <div class="m-group">
       ${item('games', 'Running games', 'gamepad', running ? String(running) : null)}
+      ${item('troubleshoot', 'Troubleshooting', 'alert', problems(s).length ? String(problems(s).length) : null)}
       ${item('tutorials', 'Tutorials', 'book')}
       ${item('setup', 'Setup', 'folder')}
+      ${item('addons', 'Add-ons', 'globe')}
     </div>
     <p class="m-foot">openOMSI ${s.boot?.version || ''}</p>
   </div>`;
@@ -83,7 +88,7 @@ function MobileDrive() {
   const trips = tour?.trips || [];
   const picked = pickedTrip();
   const trip = c.free ? null : picked != null ? trips.find((x) => x.index === picked) : trips[tripAt(tour || { trips: [] }, c.time * 60)];
-  const ready = m && v && (c.free || (line && tour)) && !noServerBus();
+  const ready = m && v && (c.free || (line && tour)) && !noServerBus() && !transportRefusal(m, v);
   const mapLabel = joined && c.lan_map ? mapName(c.lan_map.replace(/\\/g, '/')) : m ? m.friendly || m.name : '-';
   const go = async (extra) => {
     setBusy(true);
@@ -148,6 +153,7 @@ function MobileDrive() {
         <${Toggle} checked=${c.passengers} onChange=${(passengers) => choose({ passengers })} label="Passengers" />
         <${Toggle} checked=${c.schedule} onChange=${(schedule) => choose({ schedule })} label="Timetable buses" />
         <${Toggle} checked=${c.autostart} onChange=${(autostart) => choose({ autostart })} label="Bus ready to go" />
+        <${CabinTemperatureOption} />
         <${Toggle} checked=${c.on_foot} onChange=${(on_foot) => choose({ on_foot })} label="Start on foot" />
       </div>
       ${!joined && s.situations?.length > 0 && html`<div class="m-group">
@@ -238,8 +244,8 @@ function TourSheet({ close }) {
     ${shown.map(({ tour: x, ended, at, via }) => {
       const trip = x.trips[at];
       const found = tq && trip && !x.number.toLowerCase().includes(tq);
-      const what = found ? html`${hms(trip.departure)} <${TripEnds} trip=${trip} />${via ? ` (${t('via {stop}', { stop: via })})` : ''}` : `${x.days} - ${x.trips.length} ${t('trips')}${x.trips.length ? ` - ${hms(x.first)}-${hms(x.last)}` : ''}`;
-      return pick(x.number === s.choice.tour, () => (chooseTour(x, found ? trip : null), close()), html`<span class="m-pick-text"><b>${t('Tour')} ${x.number}</b><small>${what}${!x.runs ? ` - ${t('not on this day')}` : ended ? ` - ${t('ended')}` : ''}</small></span>`, x.runs && !ended ? '' : ' dim');
+      const what = found ? html`${hms(trip.departure)} <${TripEnds} trip=${trip} />${via ? ` (${t('via {stop}', { stop: via })})` : ''}` : `${x.days} - ${t('{n} trips', { n: x.trips.length })}${x.trips.length ? ` - ${hms(x.first)}-${hms(x.last)}` : ''}`;
+      return pick(tourId(x) === s.choice.tour, () => (chooseTour(x, found ? trip : null), close()), html`<span class="m-pick-text"><b>${t('Tour')} ${x.number}</b><small>${what}${!x.runs ? ` - ${t('not on this day')}` : ended ? ` - ${t('ended')}` : ''}</small></span>`, x.runs && !ended ? '' : ' dim');
     })}
   </div>`;
 }
@@ -254,7 +260,7 @@ function TripSheet({ close }) {
   const trip = tour.trips[cur];
   return html`<div class="m-split">
     <div class="m-split-list">
-      ${tour.trips.map((x, i) => pick(i === cur, () => pickTrip(x), html`<span class="m-time">${hms(x.departure)}<small>${hms(x.arrival)}</small></span>${depotRun(x) ? html`<span class="muted">${t('Depot run')}</span>` : html`<span class="line-badge">${x.line}</span>`}<span class="m-pick-text"><${TripEnds} trip=${x} stack /></span>`))}
+      ${tour.trips.map((x, i) => pick(i === cur, () => pickTrip(x), html`<span class="m-time">${hms(x.departure)}<small>${hms(x.arrival)}</small><small>${tripTime(x)}</small></span>${depotRun(x) ? html`<span class="muted">${t('Depot run')}</span>` : html`<span class="line-badge">${x.line}</span>`}<span class="m-pick-text"><${TripEnds} trip=${x} stack /></span>`))}
     </div>
     <div class="m-split-map">
       ${trip && html`<${RouteMap} map=${c.map} date=${c.date} trip=${trip.name} entry=${c.entry} height=${0} stops=${trip.stops.map((x) => ({ time: hms(x.dep || x.arr), name: x.name }))} onEntry=${(entry) => choose({ entry })} />`}

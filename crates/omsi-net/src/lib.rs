@@ -100,6 +100,7 @@ pub use traffic_net::TrafficNetStats;
 pub mod vars;
 pub mod var_schema;
 pub mod scripttex;
+pub mod freetex;
 pub mod ai_context;
 pub mod sounds;
 pub mod voice_net;
@@ -447,11 +448,11 @@ impl SessionCode {
                 Some(v) => v,
                 None if matches!(c, b'0' | b'O' | b'1' | b'I') => {
                     return Err(format!(
-                    "'{}' never appears in a session code - check the character that looks like it",
+                    "the character '{}' never appears in a session code - check the character that looks like it",
                     c as char
                 ))
                 }
-                None => return Err(format!("'{}' is not part of a session code", c as char)),
+                None => return Err(format!("the character '{}' is not part of a session code", c as char)),
             };
             for k in (0..5).rev() {
                 bits.push(((v >> k) & 1) as u8);
@@ -1354,6 +1355,7 @@ pub struct LanSession {
     var_receiver: vars::VarReceiver,
     ai_context_in: Vec<Vec<u8>>,
     script_textures: scripttex::Sync,
+    freetex_packets: Vec<Vec<u8>>,
     sounds: sounds::Sync,
     /// Voice chat (`voice_net`): what the session allows, the players an administrator
     /// silenced (host), the frames that came in, and where we are.
@@ -1489,6 +1491,7 @@ impl LanSession {
             schema_receiver: vars::VarReceiver::default(),
             schemas_in: Vec::new(),
             script_textures: scripttex::Sync::default(),
+            freetex_packets: Vec::new(),
             sounds: sounds::Sync::default(),
             voice_policy: VoicePolicy::default(),
             voice_muted: Default::default(),
@@ -1901,7 +1904,7 @@ impl LanSession {
             .collect();
         self.hw_bans = bans;
         for (id, why) in here {
-            self.kick(id, &if why.is_empty() { "you are banned from this session".to_string() } else { format!("you are banned from this session: {why}") }, false);
+            self.kick(id, &if why.is_empty() { "you are banned from this session".to_string() } else { format!("you are banned from this session (reason: {why})") }, false);
         }
     }
 
@@ -2410,12 +2413,12 @@ impl LanSession {
         let port = self.candidates.first().map(|a| a.port()).unwrap_or(DEFAULT_PORT);
         if self.refused >= 2 && self.candidates.len() == 1 {
             return format!(
-                "{} answers, but no session runs on port {port} there - check the port, or whether the host has started its game",
+                "the address {} answers, but no session runs on port {port} there - check the port, or whether the host has started its game",
                 self.candidates[0].ip()
             );
         }
         if let Some(r) = self.other_reject.as_ref() {
-            return format!("the host did not answer; {r}");
+            return format!("the host did not answer (another computer did: {r})");
         }
         format!(
             "no answer from {} within {:.0} s. Is the session still running, and was the whole code copied? The host's firewall must let the game receive UDP on port {port} (on Windows allow it for public networks too). If both of you are behind a mobile or carrier network that changes the port for every connection, the way cannot be opened: the host can forward UDP port {port} on the router, or you both use a VPN",
@@ -2611,8 +2614,7 @@ impl LanSession {
                 self.on_sound(&data, from);
                 continue;
             }
-            if data[0] == scripttex::MAGIC {
-                self.on_script_texture(&data, from);
+            if self.on_image_packet(&data, from) {
                 continue;
             }
             if data[0] == var_schema::MAGIC {
@@ -3100,12 +3102,12 @@ impl LanSession {
             None if hwid.as_deref().is_some_and(|h| self.hw_bans.iter().any(|b| b.0 == h)) => {
                 let why = self.hw_bans.iter().find(|b| Some(b.0.as_str()) == hwid.as_deref()).map(|b| b.1.clone()).unwrap_or_default();
                 log::info!("LAN: '{name}' at {from} is banned on this machine's hardware list; turned away");
-                self.reject(from, &if why.is_empty() { "you are banned from this session".to_string() } else { format!("you are banned from this session: {why}") });
+                self.reject(from, &if why.is_empty() { "you are banned from this session".to_string() } else { format!("you are banned from this session (reason: {why})") });
                 return;
             }
             None if (nonce.is_none() && !self.banned.is_empty()) || admission::banned(&self.banned, nonce, from).is_some() => {
                 let why = admission::banned(&self.banned, nonce, from).unwrap_or_default().to_string();
-                self.reject(from, &if why.is_empty() { "the host has sent you away from this session".to_string() } else { format!("the host has sent you away from this session: {why}") });
+                self.reject(from, &if why.is_empty() { "the host has sent you away from this session".to_string() } else { format!("the host has sent you away from this session (reason: {why})") });
                 return;
             }
             None => {

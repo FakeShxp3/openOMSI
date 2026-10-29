@@ -721,10 +721,11 @@ impl SessionSettings {
     pub(crate) fn for_session(settings: &crate::settings::Settings, args: &crate::Args) -> SessionSettings {
         let plus = args.enhanced_plus || omsi_cfg::flags::OMSI_ENHANCED_PLUS.is_set();
         let enhanced = settings.enhanced || args.enhanced || plus || omsi_cfg::flags::OMSI_ENHANCED.is_set();
+        omsi_scene::road_snow::choose(settings.road_snow);
         SessionSettings {
             enhanced_plus: plus,
             enhanced,
-            classic: settings.classic() && !enhanced,
+            classic: omsi_scene::road_snow::picture_classic(settings.classic() && !enhanced),
             clouds: SessionSettings::clouds_of(settings),
             sound_scenery: settings.vol_scenery,
             mirror_size: settings.mirror_size,
@@ -752,7 +753,7 @@ impl SessionSettings {
     /// whatever they say.
     pub(crate) fn render_options(&self, settings: &crate::settings::Settings) -> omsi_render::RenderOptions {
         let o = settings.render_options();
-        omsi_render::RenderOptions { ray_tracing: o.ray_tracing || self.enhanced_plus, ..o }
+        omsi_render::RenderOptions { ray_tracing: o.ray_tracing || self.enhanced_plus, no_enhanced: o.no_enhanced && !self.enhanced, ..o }
     }
 
     /// The world's settings from these (see `scene::host::SceneSettings`).

@@ -13,6 +13,7 @@
 
 mod admin;
 mod admin_panel;
+mod auto_announce;
 mod player_list;
 mod voice_chat;
 use omsi_scene::check;
@@ -20,7 +21,7 @@ use omsi_platform::discord;
 #[cfg(steam)]
 mod steam;
 pub(crate) use omsi_scene::head_idle;
-use omsi_input::headtrack;
+use omsi_input::{head_filter, headtrack, tobii};
 #[cfg(windows)]
 use omsi_xr::openxr;
 #[cfg(target_os = "android")]
@@ -72,6 +73,7 @@ mod mirror_hud;
 use omsi_navigator as navigator;
 mod vr_navigator;
 use omsi_scene::money;
+mod milezero;
 mod radio;
 
 use omsi_scene::puddles;
@@ -102,6 +104,7 @@ use omsi_scene::threads;
 use omsi_scene::tiles;
 mod traffic;
 mod view_sync;
+mod watchdog;
 mod ui;
 
 // the game itself, split by what each part does
@@ -140,6 +143,7 @@ mod plugin_io;
 // the plugins' panels (`omsi-plugin-ui`) at their old path, and the app's side of their input
 use omsi_plugin_ui as plugin_ui;
 mod plugin_panels;
+mod process_permissions;
 mod plugins;
 mod services;
 mod sim_thread;
@@ -158,7 +162,7 @@ mod world_load;
 rust_i18n::i18n!("locales");
 // (the tables are read when this crate compiles: this makes cargo compile it again when they
 // change - the macro alone left the old texts in the program)
-const _LOCALES: &str = include_str!("../locales/app.yml");
+use omsi_launcher_lib::i18n::TABLES as _LOCALES;
 
 /// Show the interface in `code` (the settings' ENG / DEU / FRA / RUS).
 pub(crate) fn ui_language(code: &str) {
@@ -169,6 +173,12 @@ pub(crate) fn ui_language(code: &str) {
     omsi_ui::i18n::set_language(iso);
     omsi_sim::vehicle_api::set_locale(iso);
 }
+
+const MISSING_ORIGINAL: &str = "The original OMSI 2 was not found.\n\n\
+    openOMSI needs a complete installation of the original game (any version). \
+    Choose its folder in the launcher (Setup), or start once with \
+    --root \"/path/to/OMSI 2\", the folder with Omsi.exe, maps and Vehicles in it.\n\n\
+    Missing in {folder}: {missing}";
 
 fn locale_keys(yml: &str) -> impl Iterator<Item = String> + '_ {
     yml.lines().filter_map(|l| l.strip_prefix('"')?.strip_suffix("\":")).filter(|k| k.contains('{')).filter_map(|k| {
@@ -377,19 +387,11 @@ pub(crate) fn prepare(mut args: Args, bare: bool) -> Result<Option<(Args, Option
                 // installation of it there is nothing to play on, and every player must have
                 // the same base whatever copy of OMSI 2 they own
                 let missing = omsi_cfg::missing_original_essentials(&args.root);
-                let text = format!(
-                    "The original OMSI 2 was not found.\n\n\
-                     openOMSI needs a complete installation of the original game (any version). \
-                     Choose its folder in the launcher (Setup), or start once with \
-                     --root \"/path/to/OMSI 2\", the folder with Omsi.exe, maps and Vehicles in it.\n\n\
-                     Missing in {}: {}",
-                    args.root.display(),
-                    missing.join(", ")
-                );
+                let text = omsi_ui::tr(MISSING_ORIGINAL).replace("{folder}", &args.root.display().to_string()).replace("{missing}", &missing.join(", "));
                 if server_cfg.is_some() || args.list_maps {
                     eprintln!("{text}");
                 } else {
-                    fatal_dialog("openOMSI cannot start", &text);
+                    fatal_dialog(&omsi_ui::tr("openOMSI cannot start"), &text);
                 }
                 if cfg!(any(target_os = "android", target_os = "ios")) {
                     // (a phone's app is not ended from inside: back to the launcher)
@@ -596,7 +598,12 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
     // Steam must be initialized before the graphics instance and window so its overlay can
     // hook the rendering process before the first surface is created.
     #[cfg(steam)]
-    let steam = if is_server { None } else { crate::steam::Steam::start() };
+    // Fixtures must not create multiple process-global native Steam clients.
+    let steam = if is_server || cfg!(test) {
+        None
+    } else {
+        crate::steam::Steam::start()
+    };
     let instance = graphics_instance();
     let vr_nav_profiles = crate::vr_navigator::Profiles::load(crate::vr_navigator::profiles_path().as_deref());
     let ui = ui::Ui::new();
@@ -733,6 +740,8 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             loading: Default::default(),
             menu_edit: None,
             menu_edit_icao: false,
+            menu_edit_number: false,
+            menu_edit_ident: false,
             menu_edit_search: false,
             menu_search: String::new(),
             swap_pending: false,
@@ -749,6 +758,7 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             view_fov: None,
             head_idle_hold: Default::default(),
             ego: false,
+            flashlight: false,
             in_cab: false,
             look: (0.0, 0.0),
             look_smooth: (0.0, 0.0),
@@ -760,34 +770,10 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             orbit: ORBIT_DEFAULT,
         },
         ui,
-        perf: PerfState {
-            fps: 0.0,
-            profile: Default::default(),
-            profile_prev: Default::default(),
-            total_frames: 0,
-            input_script,
-            shot: None,
-            frames: 0,
-            fps_t,
-            log_state: Default::default(),
-            spikes: 0,
-            worst_ms: 0.0,
-            governor: (0.0, 0, 0.0),
-            governor_low: 0,
-            governor_wait_prev: 0.0,
-            play_started: None,
-            cpu_mark: None,
-            thread_cpu_mark: None,
-            instructions_mark: None,
-            profile_mark: None,
-            frame_times: Vec::new(),
-            frame_stages: Vec::new(),
-            overlay: crate::perf_overlay::new(),
-            texture_cut_at: None,
-            optimiser: Default::default(),
-        },
+        perf: PerfState::new(input_script, fps_t),
         sound: SoundState {
             radio,
+            milezero: Default::default(),
             audio: None,
             ambience: None,
             soundscape: None,
@@ -816,6 +802,7 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             pad_voice_nearby: false,
             arrow_glance: false,
             headtrack: None,
+            head_filter: Default::default(),
             headtrack_failed: None,
             headtrack_scale_last: None,
             headtrack_scale_bias: [0.0; 6],
@@ -866,6 +853,8 @@ fn assemble_app(args: Args, settings: settings::Settings) -> App {
             update_watch,
             presence,
             plugins: None,
+            vehicle_scripts_of: None,
+            object_scripts: Default::default(),
         },
         net: NetState::default(),
         service_msg: clock_note.map(|m| (m, 10.0)),
