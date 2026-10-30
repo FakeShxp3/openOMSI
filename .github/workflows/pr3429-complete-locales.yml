@@ -1,0 +1,28 @@
+name: PR 3429 complete passenger connection locales (one-shot)
+on:
+  push:
+    branches:
+      - feat/passenger-connections-opt-in
+permissions:
+  contents: write
+jobs:
+  complete-locales:
+    if: github.repository == 'isaacsa2/openOMSI'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/passenger-connections-opt-in
+          persist-credentials: true
+      - name: Complete 29 locales, remove temporary helpers, and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/pr3429_complete_translations.py
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/omsi-app/locales/app.yml
+          git rm .github/workflows/pr3429-complete-locales.yml scripts/pr3429_complete_translations.py
+          git commit -m "fix(i18n): complete 29 passenger connection locales"
+          git push origin HEAD:refs/heads/feat/passenger-connections-opt-in
