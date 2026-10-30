@@ -11,3 +11,5 @@ MIT source credit: Mayconrib808/OpenOmsi-BBS, 0.3.45-coop.15-2.2.1.8.
 The original MIT copyright and permission notice are retained in [MAYCON-LICENSE.txt](MAYCON-LICENSE.txt). Source: https://github.com/Mayconrib808/OpenOmsi-BBS.
 
 Review: synthetic simulation tests cover approach filtering, out-of-service buses, unchanged boarding intent, procedural IK, finite poses and wrist timing. Settings are covered across native/launcher writers and launcher restart. With the option off, snapshots skip the bus search and temporary buffer; the pose path skips the gesture work. This is source-level performance evidence, not an FPS benchmark.
+
+The gesture is limited to passengers still waiting at their stop, not those walking to the bus door.

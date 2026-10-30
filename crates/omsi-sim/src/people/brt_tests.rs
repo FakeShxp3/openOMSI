@@ -321,6 +321,14 @@ fn optional_hailing_is_cosmetic_and_ignores_out_of_service_buses() {
     let before = (h.people[0].position, h.pax(0).unwrap().task, h.pax(0).unwrap().bus);
     assert_eq!(h.visual_hail_bus(0, std::slice::from_ref(&bus)), Some((bus.id, true)));
     assert_eq!((h.people[0].position, h.pax(0).unwrap().task, h.pax(0).unwrap().bus), before);
+    // Do not hail while walking towards an already chosen door: the torso
+    // turn could visibly drag the feet despite changing no boarding task.
+    for task in [Task::ToBus, Task::WalkingToBus] {
+        h.pax_mut(0).unwrap().task = task;
+        h.pax_mut(0).unwrap().bus = Some(bus.id);
+        assert_eq!(h.visual_hail_bus(0, std::slice::from_ref(&bus)), None);
+    }
+    h.pax_mut(0).unwrap().task = Task::WaitingForBus;
     bus.takes = Takes::Nobody;
     assert_eq!(h.visual_hail_bus(0, std::slice::from_ref(&bus)), None);
 }
