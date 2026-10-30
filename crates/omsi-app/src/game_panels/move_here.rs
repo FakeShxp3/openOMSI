@@ -1,6 +1,6 @@
 //! The map camera (F4): a click on the ground asks whether to move the bus there, and puts
 //! it there - wherever that is, a car park, a yard, a field, not only on the nearest
-//! street as Ctrl+click does - facing the way it faced, on the ground found there.
+//! street as Ctrl+click does - facing where the map camera looks, on the ground found there.
 
 use super::{button, card, grow_row, note, title};
 use omsi_plugin::ui::{Anchor, Panel};
@@ -31,8 +31,9 @@ pub(crate) fn click(app: &mut crate::App, id: &str) {
     if id != "yes" {
         return;
     }
-    let Some(heading) = app.player.as_ref().map(|p| p.vehicle.heading) else { return };
+    let Some(heading) = app.camera.as_ref().map(|c| c.yaw as f64).or_else(|| app.player.as_ref().map(|p| p.vehicle.heading)) else { return };
     if crate::admin::request_teleport(app, at, heading) {
+        app.service_msg = Some(("The bus stands where the map was clicked".into(), 3.0));
         app.service_event("teleport", "player", None);
     }
 }
