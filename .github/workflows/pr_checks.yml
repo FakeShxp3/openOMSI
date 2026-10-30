@@ -83,4 +83,4 @@ jobs:
 
       - name: Launcher settings startup
         if: ${{ !cancelled() }}
-        run: node --experimental-vm-modules --test launcher/tests/theme-startup.test.mjs launcher/tests/passenger-options.test.mjs
+        run: node --experimental-vm-modules --test launcher/tests/theme-startup.test.mjs launcher/tests/passenger-hailing.test.mjs
