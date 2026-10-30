@@ -281,13 +281,25 @@ impl crate::people::PeopleSim {
         out.eye = self.eye;
         out.buses = self.last_buses.clone();
         out.people.clear();
-        // Do not scan the bus list for every passenger if the feature is off.
-        let hail = if self.visual_hailing {
-            Some(self.people.iter().enumerate().map(|(i,_)|
-                self.visual_hail_bus(i, &self.last_buses).and_then(|(bus,moving)|
-                    self.last_buses.iter().find(|b|b.id==bus).map(|b|(b.pos,moving)))).collect::<Vec<_>>())
-        } else { None };
-        out.people.extend(self.people.iter().enumerate().map(|(i,p)| PersonFrame {
+        // Keep the snapshot allocation-free apart from its reusable people buffer.
+        // People beyond the view's 300 m limit need no per-frame bus lookup.
+        out.people.extend(self.people.iter().enumerate().map(|(i, p)| {
+            let hail = if self.visual_hailing
+                && self.eye.is_none_or(|eye| {
+                    (p.position - eye.pos).length_squared() <= 300.0 * 300.0
+                })
+            {
+                self.visual_hail_bus(i, &self.last_buses)
+                    .and_then(|(bus, moving)| {
+                        self.last_buses
+                            .iter()
+                            .find(|b| b.id == bus)
+                            .map(|b| (b.pos, moving))
+                    })
+            } else {
+                None
+            };
+            PersonFrame {
             id: p.id,
             ty: p.ty.clone(),
             position: p.position,
@@ -302,8 +314,8 @@ impl crate::people::PeopleSim {
             hidden: self.avatar_hidden.get(&p.id).copied(),
             facts: p.pose_facts(),
             state: p.state.name(),
-            hail_target: hail.as_ref().and_then(|h| h[i]).map(|x|x.0),
-            hail_moving: hail.as_ref().and_then(|h| h[i]).is_some_and(|x|x.1),
+            hail_target: hail.map(|(pos, _)| pos),
+            hail_moving: hail.is_some_and(|(_, moving)| moving),
             debug: debug.then(|| {
                 let pax = match &p.state {
                     crate::people::State::Pax(x) => format!("pax_state {} speed {:.2} seat_h {:.2} room {:.2} st {}", x.pax_state, x.speed, x.seat_h, x.room, x.st),
@@ -311,6 +323,7 @@ impl crate::people::PeopleSim {
                 };
                 [format!("{} {}", p.label(), p.state_name()), pax]
             }),
+            }
         }));
     }
 }
