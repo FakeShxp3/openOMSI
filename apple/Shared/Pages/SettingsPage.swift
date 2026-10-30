@@ -416,6 +416,7 @@ struct SettingsPage: View {
                 SettingToggle(label: "Discord Rich Presence", key: "discord_status", fallback: true, help: "Shows the launcher or your map, bus, line and multiplayer status in Discord.")
                 SettingToggle(label: "Voice chat in multiplayer", key: "voice_enabled", fallback: false, help: "Hold the nearby (V) or radio (B) key to talk. The microphone is used only while a key is held; nothing is recorded")
             }
+            SettingToggle(label: "Disable OMSI plugins (recommended)", key: "disable_plugins", fallback: true, help: "On by default. Disables Lua and legacy OMSI plugins, including vehicle plugins, for the next game. Normal bus scripts still run. Turn off only if you need a trusted plugin.")
             SettingSlider(label: "Game interface size", key: "ui_scale", range: 0.5 ... 2, step: 0.05, fallback: 1, round: 0.01) { pct($0) }
             SettingToggle(label: "Interface grows with the window", key: "ui_scale_window", fallback: true)
             SettingSlider(label: "Interface opacity", key: "ui_opacity", range: 0.2 ... 1, step: 0.05, fallback: 0.85, round: 0.01) { pct($0) }

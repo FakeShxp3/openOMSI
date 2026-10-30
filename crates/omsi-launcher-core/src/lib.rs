@@ -2252,7 +2252,8 @@ pub fn settings_from_text_on(text: Option<&str>, phone: bool) -> Value {
     v["mirror_quality"] = json!("standard");
     v["vr_desktop_mirror"] = json!(true);
     v["discord_status"] = json!(true);
-    v["disable_plugins"] = json!(false);
+    // Plugins are opt-in: new installations do not execute untrusted OMSI extensions.
+    v["disable_plugins"] = json!(true);
     // a Tobii eye tracker read natively, beside opentrack (the game's menu switches these)
     v["head_tracking_source"] = json!("auto");
     v["tobii_edges"] = json!(false);
@@ -2823,7 +2824,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     text.push_str(&format!("touch_door_mode={}\n", if v.get("touch_door_mode").and_then(|x| x.as_str()) == Some("direct") { "direct" } else { "standard" }));
     text.push_str(&format!("update_channel={}\n", if v.get("update_channel").and_then(|x| x.as_str()) == Some("beta") { "beta" } else { "stable" }));
     text.push_str(&format!("arrows_switch_cams={}\n", b("arrows_switch_cams", true)));
-    text.push_str(&format!("disable_plugins={}\n", b("disable_plugins", false)));
+    text.push_str(&format!("disable_plugins={}\n", b("disable_plugins", true)));
     // voice chat (the game clamps again when it reads them)
     {
         let text_of = |k: &str, d: &str| v.get(k).and_then(|x| x.as_str()).map(|x| x.replace(['\n', '\r'], " ").trim().to_string()).unwrap_or_else(|| d.to_string());
@@ -3157,7 +3158,7 @@ fn duty_args_for_root(d: &Duty, root: &Path) -> Result<Vec<String>> {
 
 fn duty_args_with_settings(d: &Duty, root: &Path, st: &Value) -> Result<Vec<String>> {
     let mut start = vec!["--root".into(), root.to_string_lossy().to_string(), "--no-menu".into()];
-    if st.get("disable_plugins").and_then(Value::as_bool).unwrap_or(false) {
+    if st.get("disable_plugins").and_then(Value::as_bool).unwrap_or(true) {
         start.push("--no-plugins".into());
     }
     if let Some(t) = d.tutorial {
