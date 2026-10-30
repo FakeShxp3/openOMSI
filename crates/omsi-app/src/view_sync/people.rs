@@ -439,9 +439,8 @@ pub(crate) struct PersonView {
     pub(super) ankles: [Vec3; 2],
     /// The earlier IK/foot-planted animation, allocated only for the enhanced poses.
     pub(super) procedural: Option<omsi_sim::human::Pose>,
-    /// Local-only cosmetic gesture; never changes bus stops or tasks.
+    /// Brief look at a full bus; never changes boarding or reserves a place.
     hail_strength: f32,
-    hail_wrist: omsi_sim::human::HailWrist,
     hail_look: omsi_sim::human::HailLook,
     full_gate: omsi_sim::human::FullBusHail<BusId>,
     /// A jump of the person's place within a bus (onto the seat, as Omsi.exe puts them
@@ -603,28 +602,25 @@ impl PeopleView {
                 omsi_sim::human::slots_from_omsi(&p.anim.bones(&ty.omsi))
             };
             if p.hail_target.is_some() || st.hail_strength > 0.001 {
-                // Visual hailing is independent from passenger boarding and AI logic.
-                // Only an explicitly enabled natural-animation pose may alter the rig.
-                let asking = enhanced && !p.puppet && p.hidden.is_none()
+                // A full bus gets a brief look, not a boarding hand signal.
+                // It is entirely cosmetic and does not change boarding decisions.
+                let eligible = enhanced && !p.puppet && p.hidden.is_none()
                     && matches!(p.place, Place::Ground)
                     && p.hail_moving && p.hail_target.is_some()
                     && (p.position - camera).length_squared() < 300.0 * 300.0;
                 // One short acknowledgement of a full bus, not continuous waving.
                 let reaction_allowed = p.hail_bus.is_some_and(|id|
-                    st.full_gate.allow(id, p.hail_full, asking && p.hail_full, dt));
-                let asking = asking && p.hail_full && reaction_allowed;
-                st.hail_strength += ((if asking { 1.0 } else { 0.0 }) - st.hail_strength)
+                    st.full_gate.allow(id, p.hail_full, eligible && p.hail_full, dt));
+                let reacting = eligible && p.hail_full && reaction_allowed;
+                st.hail_strength += ((if reacting { 1.0 } else { 0.0 }) - st.hail_strength)
                     .clamp(-dt * 2.8, dt * 2.8);
                 if !enhanced { st.hail_strength = 0.0; }
-                let wave = st.hail_wrist.advance(st.hail_strength > 0.001, dt, p.id);
                 if st.hail_strength > 0.001 && enhanced && !p.puppet {
-                    let torso = omsi_sim::human::slot_of(omsi_sim::human::BONE_MAIN).unwrap();
-                    let waiting_forward = bones[torso].transform_vector3(Vec3::Y);
                     let target = p.hail_target.and_then(|bus|
                         omsi_sim::human::hail_look_target(p.position, p.heading, bus));
+                    // Looking at the full bus, with both arms down, is distinct from
+                    // the voluntary request-to-stop gesture in passenger hailing (#3427).
                     st.hail_look.advance(&ty.rig, &mut bones, target, st.hail_strength, dt);
-                    omsi_sim::human::accessory_hail_arm(
-                        &ty.rig, &mut bones, 1, waiting_forward, st.hail_strength, wave);
                 }
             }
             // an avatar's face near the eye: blinks, looks, expressions, the lips

@@ -30,7 +30,9 @@ impl PeopleSim {
     /// choose a task or change which bus anybody actually boards.
     pub fn visual_hail_bus(&self, i: usize, buses: &[BusNow]) -> Option<(BusId, bool)> {
         let p = self.pax(i)?;
-        if p.inside.is_some() || !matches!(p.task, Task::WaitingForBus | Task::ToBus | Task::WalkingToBus) { return None; }
+        // Only a person waiting at a stop can react; turning the pose of someone
+        // walking towards a door can cause visible sideways sliding.
+        if p.inside.is_some() || p.task != Task::WaitingForBus { return None; }
         let stop = p.stop?;
         let s = self.stops.get(&stop)?;
         let heading = s.heading.to_radians();
@@ -41,7 +43,6 @@ impl PeopleSim {
             if !Self::visual_hail_range(d,forward) || (b.pos-self.people[i].position).length_squared()>60.0*60.0
                 || b.fwd().dot(forward) <= 0.0 || b.served.is_some_and(|id| id != stop) { return false; }
             if b.route.as_ref().is_some_and(|r| r.is_last_stop(s)) { return false; }
-            if p.task != Task::WaitingForBus { return p.bus == Some(b.id); }
             match p.line.and_then(|k| s.lines.get(k)) {
                 Some((_, termini)) => b.terminus.as_deref().is_some_and(|term|
                     fit(stop, s, p.dest.as_deref(), termini, term, &b.takes)

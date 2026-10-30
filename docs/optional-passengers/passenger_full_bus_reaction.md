@@ -11,3 +11,5 @@ MIT source reference: Mayconrib808/OpenOmsi-BBS, 0.3.45-coop.15-2.2.1.8.
 The original MIT copyright and permission notice are retained in [MAYCON-LICENSE.txt](MAYCON-LICENSE.txt). Source: https://github.com/Mayconrib808/OpenOmsi-BBS.
 
 Review: synthetic tests cover seated/standing capacity, disabled places, unknown capacity, repeated reactions and native/launcher settings persistence. With the option off, no capacity/occupancy scan or temporary per-person buffer is built, and the pose path skips gesture work. Runtime FPS and memory measurements are still required.
+
+The full-bus response is a brief glance towards the approaching bus, with arms lowered; it no longer resembles a request to stop. It is limited to passengers still waiting, not those walking to the door. This remains experimental pending gameplay captures.
