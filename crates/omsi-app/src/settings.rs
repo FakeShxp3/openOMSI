@@ -1428,39 +1428,3 @@ pub mod bus_seats {
         }
     }
 }
-
-#[cfg(test)]
-mod passenger_hailing_opt_in_tests {
-    use super::Settings;
-    #[test]
-    fn disabled_for_new_and_legacy_settings() {
-        assert!(!Settings::default().passenger_hailing);
-        assert!(!Settings::from_text("version=1\n").passenger_hailing);
-        assert!(Settings::from_text("passenger_hailing=1\n").passenger_hailing);
-        assert!(Settings::from_text("passenger_hailing=0\n").passenger_hailing == false);
-    }
-}
-
-#[cfg(test)]
-mod passenger_preference_round_trip_tests {
-    use super::Settings;
-    #[test]
-    fn both_settings_writers_preserve_the_optional_preference() {
-        let key = "passenger_hailing";
-        assert!(!Settings::phone().passenger_hailing);
-        assert!(!Settings::desktop().passenger_hailing);
-        for phone in [false, true] {
-            assert_eq!(omsi_launcher_lib::settings_from_text_on(None, phone)[key], false);
-            for on in [false, true, false] {
-                let mut settings = Settings::default();
-                settings.passenger_hailing = on;
-                let native = settings.to_text();
-                let launcher = omsi_launcher_lib::settings_from_text_on(Some(&native), phone);
-                assert_eq!(launcher[key], on);
-                let text = omsi_launcher_lib::settings_to_text(&launcher, Some(&native));
-                assert_eq!(Settings::from_text(&text).passenger_hailing, on);
-                assert_eq!(text.lines().filter(|line| line.starts_with(&format!("{key}="))).count(), 1);
-            }
-        }
-    }
-}

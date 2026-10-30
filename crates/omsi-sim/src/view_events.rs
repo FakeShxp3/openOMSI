@@ -279,7 +279,7 @@ impl crate::people::PeopleSim {
         let debug = omsi_cfg::flags::OMSI_CHECK_TPOSE.is_set();
         out.time = self.time;
         out.eye = self.eye;
-        out.buses = self.last_buses.clone();
+        out.buses.clone_from(&self.last_buses);
         out.people.clear();
         // Keep the snapshot allocation-free apart from its reusable people buffer.
         // People beyond the view's 300 m limit need no per-frame bus lookup.
@@ -289,13 +289,10 @@ impl crate::people::PeopleSim {
                     (p.position - eye.pos).length_squared() <= 300.0 * 300.0
                 })
             {
+                // The match already contains the target position: avoid a
+                // second linear scan over the buses for each passenger.
                 self.visual_hail_bus(i, &self.last_buses)
-                    .and_then(|(bus, moving)| {
-                        self.last_buses
-                            .iter()
-                            .find(|b| b.id == bus)
-                            .map(|b| (b.pos, moving))
-                    })
+                    .map(|(_, moving, pos)| (pos, moving))
             } else {
                 None
             };
