@@ -1,0 +1,61 @@
+# One-off trusted branch migration; the job removes this workflow in its commit.
+name: PR 3427 complete passenger hailing locales
+on:
+  push:
+    branches:
+      - feat/passenger-hailing-opt-in
+    paths:
+      - .github/workflows/one-shot-3427-locales.yml
+permissions:
+  contents: write
+jobs:
+  patch-locales:
+    if: ${{ github.repository == 'isaacsa2/openOMSI' && github.ref == 'refs/heads/feat/passenger-hailing-opt-in' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Complete new UI translations and remove this one-off workflow
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+          
+          translations = json.loads(r'''{"be":["Пасажыры падаюць сігнал аўтобусам, што набліжаюцца","Неабавязковы візуальны сігнал; працуе толькі з падтрымліваемай натуральнай анімацыяй"],"ca":["Els passatgers fan senyals als autobusos que s'acosten","Senyal visual opcional; només funciona amb animacions naturals compatibles"],"cs":["Cestující dávají znamení přijíždějícím autobusům","Volitelné vizuální znamení; funguje pouze s podporovanými přirozenými animacemi"],"de":["Fahrgäste geben herannahenden Bussen ein Handzeichen","Optionales sichtbares Handzeichen; funktioniert nur mit unterstützten natürlichen Animationen"],"es":["Los pasajeros hacen señas a los autobuses que se acercan","Señal visual opcional; solo funciona con animaciones naturales compatibles"],"fr":["Les passagers font signe aux bus qui approchent","Signe visuel facultatif ; fonctionne uniquement avec les animations naturelles compatibles"],"hi":["यात्री पास आती बसों को हाथ देकर रोकने का संकेत देते हैं","वैकल्पिक दृश्य संकेत; केवल समर्थित प्राकृतिक एनिमेशन के साथ काम करता है"],"hu":["Az utasok intenek a közeledő buszoknak","Opcionális vizuális jelzés; csak a támogatott természetes animációkkal működik"],"id":["Penumpang memberi isyarat kepada bus yang mendekat","Isyarat visual opsional; hanya berfungsi dengan animasi alami yang didukung"],"it":["I passeggeri fanno segno agli autobus in arrivo","Segnale visivo facoltativo; funziona solo con le animazioni naturali supportate"],"ja":["乗客が近づくバスに手を挙げて合図する","任意の視覚的な合図です。対応する自然なアニメーションでのみ機能します"],"ka":["მგზავრები მოახლოებულ ავტობუსებს ხელს უქნევენ","არჩევითი ვიზუალური სიგნალი; მუშაობს მხოლოდ მხარდაჭერილი ბუნებრივი ანიმაციებით"],"kk":["Жолаушылар жақындап келе жатқан автобустарға қол бұлғайды","Қосымша көрнекі белгі; тек қолдау көрсетілетін табиғи анимациялармен жұмыс істейді"],"ko":["승객이 다가오는 버스에 손을 들어 신호함","선택적 시각 신호이며 지원되는 자연스러운 애니메이션에서만 작동합니다"],"ms":["Penumpang memberi isyarat kepada bas yang menghampiri","Isyarat visual pilihan; hanya berfungsi dengan animasi semula jadi yang disokong"],"nl":["Passagiers wenken naderende bussen","Optioneel visueel handgebaar; werkt alleen met ondersteunde natuurlijke animaties"],"pl":["Pasażerowie dają znak nadjeżdżającym autobusom","Opcjonalny sygnał wizualny; działa tylko z obsługiwanymi naturalnymi animacjami"],"pt":["Passageiros fazem sinal aos ônibus","Animação visual opcional; requer animações naturais compatíveis"],"pt-pt":["Passageiros fazem sinal aos autocarros","Animação visual opcional; requer animações naturais compatíveis"],"ru":["Пассажиры подают сигнал приближающимся автобусам","Необязательный визуальный сигнал; работает только с поддерживаемыми естественными анимациями"],"sr":["Putnici daju znak autobusima koji prilaze","Opcioni vizuelni signal; radi samo sa podržanim prirodnim animacijama"],"sv":["Passagerare vinkar till bussar som närmar sig","Valfri visuell signal; fungerar bara med naturliga animationer som stöds"],"th":["ผู้โดยสารส่งสัญญาณเรียกรถบัสที่กำลังเข้ามา","สัญญาณเรียกแบบภาพที่เปิดใช้ได้ตามต้องการ ใช้ได้เฉพาะกับแอนิเมชันธรรมชาติที่รองรับ"],"tl":["Sumesenyas ang mga pasahero sa mga paparating na bus","Opsyonal na biswal na senyas; gumagana lamang sa mga sinusuportahang natural na animasyon"],"tr":["Yolcular yaklaşan otobüslere el işareti yapar","İsteğe bağlı görsel işaret; yalnızca desteklenen doğal animasyonlarla çalışır"],"uk":["Пасажири подають сигнал автобусам, що наближаються","Необов'язковий візуальний сигнал; працює лише з підтримуваними природними анімаціями"],"vi":["Hành khách vẫy tay ra hiệu cho xe buýt đang đến","Tín hiệu trực quan tùy chọn; chỉ hoạt động với các hoạt ảnh tự nhiên được hỗ trợ"],"zh":["乘客向驶近的公交车招手示意","可选的视觉招手动作；仅在支持的自然动画下生效"],"zh-tw":["乘客向接近的公車招手示意","可選的視覺招手動作；僅在支援的自然動畫下生效"]}''')
+          expected = set("be ca cs de es fr hi hu id it ja ka kk ko ms nl pl pt pt-pt ru sr sv th tl tr uk vi zh zh-tw".split())
+          assert set(translations) == expected and len(expected) == 29
+          p = Path("crates/omsi-app/locales/app.yml")
+          text = p.read_text(encoding="utf-8")
+          for title, slot in [
+              ("Optional visual hailing; only effective with supported natural animations", 1),
+              ("Passengers signal approaching buses", 0),
+          ]:
+              pattern = re.compile(r'(?m)^"' + re.escape(title) + r'":\n(?:  [a-z-]+: .*\n)*')
+              matches = list(pattern.finditer(text))
+              assert len(matches) == 1, f"Expected one entry: {title}"
+              match = matches[0]
+              original = match.group()
+              present = {m.group(1) for m in re.finditer(r'(?m)^  ([a-z-]+): ', original)}
+              assert present == {"pt", "pt-pt"}, f"Unexpected original languages in {title}: {present}"
+              new_lines = "".join(
+                  f"  {lang}: {json.dumps(translations[lang][slot], ensure_ascii=False)}\\n"
+                  for lang in sorted(expected - present)
+              )
+              replacement = original + new_lines.replace("\\n", "\n")
+              updated = {m.group(1) for m in re.finditer(r'(?m)^  ([a-z-]+): ', replacement)}
+              assert updated == expected, f"Missing languages: {expected-updated}"
+              text = text[:match.start()] + replacement + text[match.end():]
+          p.write_text(text, encoding="utf-8")
+          Path(".github/workflows/one-shot-3427-locales.yml").unlink()
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
+          subprocess.run(["git", "add", str(p), ".github/workflows/one-shot-3427-locales.yml"], check=True)
+          subprocess.run(["git", "commit", "-m", "fix(i18n): complete 29 passenger hailing locales"], check=True)
+          subprocess.run(["git", "push", "origin", "HEAD:refs/heads/feat/passenger-hailing-opt-in"], check=True)
+          
+          PY
