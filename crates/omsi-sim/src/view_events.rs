@@ -283,32 +283,42 @@ impl crate::people::PeopleSim {
         out.eye = self.eye;
         out.buses = self.last_buses.clone();
         out.people.clear();
-        // Cabin seats include both seated and standing [passpos] places; subtract
-        // scripted disabled places. Unknown/zero capacity is NOT proof of a full bus.
+        // Only determine capacity for buses actually targeted by visible passengers.
+        // Cache each bus once per snapshot; disabled mode avoids even the bus lookup.
         let mut full = hashbrown::HashMap::new();
-        if self.visual_full_bus_reaction {
-            let mut aboard: hashbrown::HashMap<crate::people::BusId,usize> = hashbrown::HashMap::new();
-            for person in &self.people {
-                if let crate::people::Place::Bus(id,_) = person.place {
-                    *aboard.entry(id).or_default() += 1;
-                }
-            }
-            for bus in self.last_buses.iter() {
-                let capacity = bus.cabin.seats.iter().enumerate()
-                    .filter(|(i,_)|!bus.places_off.get(*i).copied().unwrap_or(false)).count();
-                let reserved = self.seats.get(&bus.id).map_or(0,|seats|seats.iter().enumerate()
-                    .filter(|(i,used)|**used && !bus.places_off.get(*i).copied().unwrap_or(false)).count());
-                let at_capacity = capacity > 0 &&
-                    reserved.max(aboard.get(&bus.id).copied().unwrap_or(0)) >= capacity;
-                full.insert(bus.id, at_capacity);
-            }
-        }
-        let hail = if self.visual_full_bus_reaction {
-            Some(self.people.iter().enumerate().map(|(i,_)|
-                self.visual_hail_bus(i, &self.last_buses).and_then(|(bus,moving)|
-                    self.last_buses.iter().find(|b|b.id==bus).map(|b|(bus,b.pos,moving,full.get(&bus).copied().unwrap_or(false))))).collect::<Vec<_>>())
-        } else { None };
-        out.people.extend(self.people.iter().enumerate().map(|(i,p)| PersonFrame {
+        out.people.extend(self.people.iter().enumerate().map(|(i, p)| {
+            let hail = if self.visual_full_bus_reaction
+                && self.eye.is_none_or(|eye| {
+                    (p.position - eye.pos).length_squared() <= 300.0 * 300.0
+                })
+            {
+                self.visual_hail_bus(i, &self.last_buses)
+                    .and_then(|(bus_id, moving)| {
+                        let bus = self.last_buses.iter().find(|b| b.id == bus_id)?;
+                        let at_capacity = *full.entry(bus_id).or_insert_with(|| {
+                            // Cabin [passpos] includes seated and standing places. Script-disabled
+                            // positions do not count, and zero/unknown capacity is not full.
+                            let capacity = bus.cabin.seats.iter().enumerate()
+                                .filter(|(i, _)| !bus.places_off.get(*i).copied().unwrap_or(false))
+                                .count();
+                            let reserved = self.seats.get(&bus_id).map_or(0, |seats| {
+                                seats.iter().enumerate()
+                                    .filter(|(i, used)| **used
+                                        && !bus.places_off.get(*i).copied().unwrap_or(false))
+                                    .count()
+                            });
+                            let aboard = self.people.iter()
+                                .filter(|person| matches!(person.place,
+                                    crate::people::Place::Bus(id, _) if id == bus_id))
+                                .count();
+                            capacity > 0 && reserved.max(aboard) >= capacity
+                        });
+                        Some((bus_id, bus.pos, moving, at_capacity))
+                    })
+            } else {
+                None
+            };
+            PersonFrame {
             id: p.id,
             ty: p.ty.clone(),
             position: p.position,
@@ -323,10 +333,10 @@ impl crate::people::PeopleSim {
             hidden: self.avatar_hidden.get(&p.id).copied(),
             facts: p.pose_facts(),
             state: p.state.name(),
-            hail_target: hail.as_ref().and_then(|h| h[i]).map(|x|x.1),
-            hail_moving: hail.as_ref().and_then(|h| h[i]).is_some_and(|x|x.2),
-            hail_bus: hail.as_ref().and_then(|h| h[i]).map(|x|x.0),
-            hail_full: hail.as_ref().and_then(|h| h[i]).is_some_and(|x| x.3),
+            hail_target: hail.map(|(_, pos, _, _)| pos),
+            hail_moving: hail.is_some_and(|(_, _, moving, _)| moving),
+            hail_bus: hail.map(|(bus, _, _, _)| bus),
+            hail_full: hail.is_some_and(|(_, _, _, full)| full),
             debug: debug.then(|| {
                 let pax = match &p.state {
                     crate::people::State::Pax(x) => format!("pax_state {} speed {:.2} seat_h {:.2} room {:.2} st {}", x.pax_state, x.speed, x.seat_h, x.room, x.st),
@@ -334,6 +344,7 @@ impl crate::people::PeopleSim {
                 };
                 [format!("{} {}", p.label(), p.state_name()), pax]
             }),
+            }
         }));
     }
 }
