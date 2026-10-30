@@ -4,15 +4,6 @@ use omsi_cfg::template::Index;
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub static TABLES: &str = include_str!("../../omsi-app/locales/app.yml");
-/// Small incremental v2 catalog. rust-i18n also merges this file for the game.
-pub static FULL_BUS_TABLES: &str = include_str!("../../omsi-app/locales/passenger_full_bus.yml");
-
-pub fn table_all(lang: &str) -> HashMap<String, String> {
-    let mut result = table(TABLES, lang);
-    result.extend(table(FULL_BUS_TABLES, lang));
-    result
-}
-
 static PINNED: OnceLock<&'static str> = OnceLock::new();
 
 fn unquote(s: &str) -> Option<String> {
@@ -94,7 +85,7 @@ pub fn tr(text: &str) -> String {
         match g.as_ref() {
             Some((l, t)) if *l == lang => t.clone(),
             _ => {
-                let t = table_all(lang);
+                let t = table(TABLES, lang);
                 let keys: Vec<String> = t.keys().filter(|k| k.contains('{')).cloned().collect();
                 let t = Arc::new((t, Index::new(keys)));
                 *g = Some((lang, t.clone()));
@@ -134,7 +125,7 @@ mod tests {
             "Optional visual acknowledgement when an approaching compatible bus is at passenger capacity",
         ];
         for lang in langs.split(' ') {
-            let table = super::table_all(lang);
+            let table = super::table(super::TABLES, lang);
             for text in texts {
                 assert!(table.get(text).is_some_and(|value| !value.is_empty() && value != text),
                     "{lang}: missing translation for {text}");
