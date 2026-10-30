@@ -5,6 +5,7 @@ struct FlatWorld {
     collision: Arc<crate::collision::CollisionWorld>,
     parked: Arc<Vec<crate::collision::Obb>>,
     objects: crate::world_data::ObjectPlaces,
+    ground_samples: std::sync::atomic::AtomicUsize,
 }
 
 impl World for FlatWorld {
@@ -18,6 +19,7 @@ impl World for FlatWorld {
         Some(0.0)
     }
     fn walk_height_near(&self, x: f64, y: f64, _: f64) -> Option<f64> {
+        self.ground_samples.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.walk_height(x, y)
     }
     fn has_ground(&self, _: f64, _: f64) -> bool {
@@ -139,4 +141,53 @@ fn connections_need_a_service_and_disabled_path_does_not_draw_randomness() {
     )];
     assert!(!h.try_connection(0, at, 0.0, Some(42), buses[0].id, &buses, &ix, &world));
     assert_eq!(h.pax(0).unwrap().transfer_count, 0);
+    assert_eq!(world.ground_samples.load(std::sync::atomic::Ordering::Relaxed), 0,
+        "stops without valid onward service must not trigger terrain sampling");
+}
+
+#[test]
+fn chance_zero_twenty_and_hundred_respect_draw_and_service() {
+    let (mut h, mut bus) = super::super::pax_stops::brt_tests::setup("connections-chance", None);
+    bus.entry_open.fill(true);
+    let mut other = bus.clone();
+    other.id = BusId::Ai(4);
+    other.entry_open.fill(true);
+    let stop = h.stops.get_mut(&42).unwrap();
+    stop.dests = vec![("Elsewhere".into(), 1.0)];
+    stop.lines = vec![("Elsewhere".into(), ["Elsewhere".into()].into_iter().collect())];
+    stop.buses = vec![(other.id, true), (bus.id, true)];
+    let buses = [bus, other];
+    let ix = buses.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
+    let at = h.people[0].position;
+    let world = FlatWorld::default();
+
+    h.transfer_percent = 0.0;
+    let before = h.rng;
+    assert!(!h.try_connection(0, at, 0.0, Some(42), buses[0].id, &buses, &ix, &world));
+    assert_eq!(h.rng, before);
+    assert_eq!(world.ground_samples.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+    h.transfer_percent = 20.0;
+    let mut success_seed = None;
+    let mut failure_seed = None;
+    for seed in 1..=10000u64 {
+        h.rng = seed;
+        if h.rand_f() < 0.2 { success_seed.get_or_insert(seed); }
+        else { failure_seed.get_or_insert(seed); }
+        if success_seed.is_some() && failure_seed.is_some() { break; }
+    }
+    let fail = failure_seed.expect("20% should have a non-selected deterministic seed");
+    h.rng = fail;
+    let expected_next = { let _ = h.rand_f(); h.rng };
+    h.rng = fail;
+    assert!(!h.try_connection(0, at, 0.0, Some(42), buses[0].id, &buses, &ix, &world));
+    assert_eq!(h.rng, expected_next, "rejected draw must consume exactly one RNG sample");
+
+    h.rng = success_seed.expect("20% should have a selected deterministic seed");
+    assert!(h.try_connection(0, at, 0.0, Some(42), buses[0].id, &buses, &ix, &world));
+    assert_eq!(h.pax(0).unwrap().transfer_count, 1);
+
+    h.transfer_percent = 100.0;
+    assert!(h.try_connection(0, at, 0.0, Some(42), buses[1].id, &buses, &ix, &world));
+    assert_eq!(h.pax(0).unwrap().transfer_count, 2);
 }

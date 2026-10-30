@@ -1433,44 +1433,5 @@ pub mod bus_seats {
 }
 
 #[cfg(test)]
-mod passenger_connections_opt_in_tests {
-    use super::Settings;
-    #[test]
-    fn off_for_legacy_and_new_configuration() {
-        for src in ["", "version=1\n", "passenger_connections=0\n"] {
-            let s = Settings::from_text(src);
-            assert!(!s.passenger_connections);
-            assert_eq!(s.passenger_transfer_percent, 20.0);
-        }
-    }
-    #[test]
-    fn chance_clamps_without_enabling_feature() {
-        assert_eq!(Settings::from_text("passenger_transfer_percent=999\n").passenger_transfer_percent,100.0);
-        assert_eq!(Settings::from_text("passenger_transfer_percent=nan\n").passenger_transfer_percent,20.0);
-        assert!(!Settings::from_text("passenger_transfer_percent=100\n").passenger_connections);
-    }
-}
-
-#[cfg(test)]
-mod passenger_preference_round_trip_tests {
-    use super::Settings;
-    #[test]
-    fn both_settings_writers_preserve_the_optional_preference() {
-        let key = "passenger_connections";
-        assert!(!Settings::phone().passenger_connections);
-        assert!(!Settings::desktop().passenger_connections);
-        for phone in [false, true] {
-            assert_eq!(omsi_launcher_lib::settings_from_text_on(None, phone)[key], false);
-            for on in [false, true, false] {
-                let mut settings = Settings::default();
-                settings.passenger_connections = on;
-                let native = settings.to_text();
-                let launcher = omsi_launcher_lib::settings_from_text_on(Some(&native), phone);
-                assert_eq!(launcher[key], on);
-                let text = omsi_launcher_lib::settings_to_text(&launcher, Some(&native));
-                assert_eq!(Settings::from_text(&text).passenger_connections, on);
-                assert_eq!(text.lines().filter(|line| line.starts_with(&format!("{key}="))).count(), 1);
-            }
-        }
-    }
-}
+#[path = "settings/passenger_connections_tests.rs"]
+mod passenger_connections_tests;

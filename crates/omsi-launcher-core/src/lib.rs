@@ -3512,5 +3512,5 @@ mod right_stick_look_tests;
 mod head_tracking_tests;
 
 #[cfg(test)]
-#[path = "passenger_settings_tests.rs"]
-mod passenger_settings_tests;
+#[path = "passenger_connections_tests.rs"]
+mod passenger_connections_tests;
