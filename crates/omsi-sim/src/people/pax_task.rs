@@ -695,13 +695,13 @@ impl PeopleSim {
         let count = self.pax(i).map_or(0, |p|p.transfer_count);
         if count >= 2 { return false; }
         if self.rand_f() * 100.0 >= percent.clamp(0.0,100.0) as f64 {
-            if from_bus == BusId::Player { log::info!("Passenger connection: chance_percent={percent:.0} outcome=not_drawn"); }
+            if from_bus == BusId::Player { log::debug!("Passenger connection: chance_percent={percent:.0} outcome=not_drawn"); }
             return false;
         }
         let mut candidates: Vec<_> = self.stops.iter().filter_map(|(id,s)| {
             if (s.pos.z-at.z).abs() > 2.0 || (s.pos-at).length_squared() > 80.0*80.0 { return None; }
-            if !connection_walkable(at, s.gather, |x, y, z| world.walk_height_near(x, y, z)) { return None; }
-            if world.collision().ray_blocked(at+DVec3::Z*0.9,s.gather+DVec3::Z*0.9,0.1,0.6) { return None; }
+            // Check cheaper service availability before sampling up to 40 ground
+            // positions and tracing a collision ray at a busy interchange.
             let serves = |bn: &BusNow, dest: &str, terms: &HashSet<String>| {
                 !matches!(bn.takes,Takes::Nobody)
                     && !bn.route.as_ref().is_some_and(|r|r.is_last_stop(s))
@@ -732,6 +732,8 @@ impl PeopleSim {
                 choices.push((dest.clone(),line,f64::from(*weight),ready));
             }
             if choices.is_empty() { return None; }
+            if !connection_walkable(at, s.gather, |x, y, z| world.walk_height_near(x, y, z)) { return None; }
+            if world.collision().ray_blocked(at+DVec3::Z*0.9,s.gather+DVec3::Z*0.9,0.1,0.6) { return None; }
             let ready=choices.iter().any(|c|c.3);
             if ready { choices.retain(|c|c.3); }
             Some((*id,ready,(s.pos-at).length_squared(),choices))
@@ -754,11 +756,11 @@ impl PeopleSim {
             p.interior=0.0;p.vel=DVec2::ZERO;p.t_state=0.0;p.state=State::Pax(Box::new(next));
             self.set_task(i,Task::WalkingToBusstop,buses,bus_ix,world);
             if from_bus==BusId::Player {
-                log::info!("Passenger connection: chance_percent={percent:.0} outcome=walking from_stop={from_stop:?} to_stop={stop} destination={dest:?} bus_ready={ready}");
+                log::debug!("Passenger connection: chance_percent={percent:.0} outcome=walking from_stop={from_stop:?} to_stop={stop} destination={dest:?} bus_ready={ready}");
             }
             return true;
         }
-        if from_bus==BusId::Player { log::info!("Passenger connection: chance_percent={percent:.0} outcome=no_reachable_onward_service from_stop={from_stop:?}"); }
+        if from_bus==BusId::Player { log::debug!("Passenger connection: chance_percent={percent:.0} outcome=no_reachable_onward_service from_stop={from_stop:?}"); }
         false
     }
 
