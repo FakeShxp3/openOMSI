@@ -319,9 +319,10 @@ fn optional_hailing_is_cosmetic_and_ignores_out_of_service_buses() {
     bus.pos = DVec3::new(-4.0, -20.0, 0.0);
     bus.speed = 4.0;
     let before = (h.people[0].position, h.pax(0).unwrap().task, h.pax(0).unwrap().bus);
-    assert_eq!(h.visual_hail_bus(0, std::slice::from_ref(&bus)), Some((bus.id, true)));
+    assert_eq!(h.visual_hail_bus(0, std::slice::from_ref(&bus)), Some((bus.id, true, bus.pos)));
     assert_eq!((h.people[0].position, h.pax(0).unwrap().task, h.pax(0).unwrap().bus), before);
-    // Neither a full-bus reaction nor hailing may rotate a walking person.
+    // Do not hail while walking towards an already chosen door: the torso
+    // turn could visibly drag the feet despite changing no boarding task.
     for task in [Task::ToBus, Task::WalkingToBus] {
         h.pax_mut(0).unwrap().task = task;
         h.pax_mut(0).unwrap().bus = Some(bus.id);
@@ -365,4 +366,30 @@ fn full_bus_snapshot_counts_standing_and_disabled_places() {
     h.visual_full_bus_reaction = false;
     h.snapshot_into(&mut frame);
     assert!(frame.people[0].hail_target.is_none());
+}
+
+#[test]
+fn full_bus_detection_respects_all_four_settings_combinations() {
+    let (mut h, mut bus) = setup("visual-combinations", None);
+    h.pax_mut(0).unwrap().task = Task::WaitingForBus;
+    h.pax_mut(0).unwrap().line = Some(0);
+    h.stops.get_mut(&42).unwrap().lines =
+        vec![("Elsewhere".into(), ["Elsewhere".into()].into_iter().collect())];
+    bus.pos = DVec3::new(-4.0, -20.0, 0.0);
+    bus.speed = 4.0;
+    h.last_buses = Arc::new(vec![bus.clone()]);
+    h.seats.insert(bus.id, vec![true; bus.cabin.seats.len()]);
+    let mut frame = crate::view_events::PeopleFrame::default();
+    for hailing in [false, true] {
+        for reaction in [false, true] {
+            h.visual_hailing = hailing;
+            h.visual_full_bus_reaction = reaction;
+            h.snapshot_into(&mut frame);
+            let p = &frame.people[0];
+            assert_eq!(p.hail_target.is_some(), hailing || reaction);
+            assert_eq!(p.hail_full, hailing || reaction);
+            assert_eq!(p.hail_signal_enabled, hailing);
+            assert_eq!(p.hail_reaction_enabled, reaction);
+        }
+    }
 }

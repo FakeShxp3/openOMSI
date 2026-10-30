@@ -3,52 +3,9 @@
 // Original MIT notice: docs/optional-passengers/MAYCON-LICENSE.txt.
 use super::*;
 
-/// The actual posed head top, including the model's height and head movement.
-pub fn accessory_head(rig: &Rig, bones: &[Affine3A; SLOTS]) -> Vec3 {
-    bones[HEAD].transform_point3(Vec3::new(rig.head_pivot.x, rig.head_pivot.y, rig.head_top))
-}
-
-pub fn accessory_arm(
-    rig: &Rig,
-    bones: &mut [Affine3A; SLOTS],
-    side: usize,
-    target: Vec3,
-    amount: f32,
-    grip: bool,
-    wave: f32,
-) {
-    let side = side.min(1);
-    let sh = bones[MAIN].transform_point3(rig.shoulder[side]);
-    let old = bones[HAND[side]].transform_point3(rig.wrist[side]);
-    let target = old.lerp(target, amount.clamp(0.0, 1.0));
-    let pole = Vec3::new(SIDE[side] * 0.75, -0.2, -0.8);
-    let (el, wr, _) = two_bone(sh, rig.upper_arm, rig.forearm, target, pole);
-    let a = (el - sh).normalize_or(-Vec3::Z);
-    let c = (wr - el).normalize_or(-Vec3::Z);
-    let front = (c - a * a.dot(c)).normalize_or(Vec3::Y);
-    let bend = a.dot(c).clamp(-1.0, 1.0).acos();
-    let fore_front = front * bend.cos() - a * bend.sin();
-    let upper = bone_rot(rig.elbow[side] - rig.shoulder[side], Vec3::Y, a, front);
-    let fore = bone_rot(rig.wrist[side] - rig.elbow[side], Vec3::Y, c, fore_front);
-    // Hold the shaft upright: the rest fingers point along X, palm towards -Z.
-    let hand = if grip {
-        bone_rot(
-            rig.wrist[side] - rig.elbow[side],
-            -Vec3::Z,
-            Vec3::Y,
-            Vec3::X * SIDE[side],
-        )
-    } else {
-        fore * Mat3A::from_rotation_y(wave)
-    };
-    bones[UPPER[side]] = joint_xf(rig.shoulder[side], sh, upper);
-    bones[FORE[side]] = joint_xf(rig.elbow[side], el, fore);
-    bones[HAND[side]] = joint_xf(rig.wrist[side], wr, hand);
-}
-
 /// A Brazilian-style boarding request: extend the free arm in front of the
 /// posed torso, around shoulder height. The gaze is intentionally independent.
-/// References and the limits of the photographic evidence are in sources.md.
+/// Conservative procedural gesture; no external photographic reference is bundled.
 pub fn accessory_hail_arm(
     rig: &Rig,
     bones: &mut [Affine3A; SLOTS],
