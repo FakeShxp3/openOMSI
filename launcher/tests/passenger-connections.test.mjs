@@ -79,3 +79,24 @@ test('optional passenger setting survives launcher writes and restart', async ()
     assert.equal(chance.max, 100);
   }
 });
+
+test('all three passenger options remain independent across launcher restart', async () => {
+  const keys = ['passenger_hailing', 'passenger_full_bus_reaction', 'passenger_connections'];
+  for (let bits = 0; bits < 8; bits++) {
+    const settings = Object.fromEntries(keys.map((key, index) => [key, !!(bits & (1 << index))]));
+    settings.passenger_transfer_percent = 35;
+    const app = await launcher(settings);
+    await app.data.boot();
+    const rows = app.tabs.flatMap((tab) => (tab.cols || []).flatMap((col) => col.rows || []));
+    for (const key of [...keys, 'passenger_transfer_percent']) {
+      assert.equal(rows.filter((row) => row.key === key).length, 1, key);
+    }
+    await app.data.saveSettings({ passenger_connections: !settings.passenger_connections });
+    const restarted = await launcher(app.persisted());
+    await restarted.data.boot();
+    assert.equal(restarted.state.settings.passenger_hailing, settings.passenger_hailing);
+    assert.equal(restarted.state.settings.passenger_full_bus_reaction, settings.passenger_full_bus_reaction);
+    assert.equal(restarted.state.settings.passenger_connections, !settings.passenger_connections);
+    assert.equal(restarted.state.settings.passenger_transfer_percent, 35);
+  }
+});

@@ -600,6 +600,10 @@ impl App {
                     h.transfer_percent = if self.args.passenger_connections_allowed(self.net.lan.is_some()) && self.settings.passenger_connections {
                         self.settings.passenger_transfer_percent
                     } else { 0.0 };
+                    h.visual_hailing = self.settings.passenger_hailing
+                        && self.settings.passenger_animation == "enhanced";
+                    h.visual_full_bus_reaction = self.settings.passenger_full_bus_reaction
+                        && self.settings.passenger_animation == "enhanced";
                     h.bad_driving = self.settings.pax_bad_driving;
                     h.boarding = self.settings.boarding.clone();
                     h.stand_chance = self.settings.standing_chance;
