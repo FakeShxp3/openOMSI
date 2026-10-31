@@ -40,6 +40,15 @@ pub fn serve(
     key: Arc<omsi_net::hostkey::HostKey>,
     args: &ModSource,
 ) -> Option<Server> {
+    serve_with_accept(listener, key, args, TcpListener::accept)
+}
+
+fn serve_with_accept(
+    listener: TcpListener,
+    key: Arc<omsi_net::hostkey::HostKey>,
+    args: &ModSource,
+    mut accept: impl FnMut(&TcpListener) -> std::io::Result<(TcpStream, SocketAddr)> + Send + 'static,
+) -> Option<Server> {
     if omsi_cfg::flags::OMSI_NO_LAN_MODS.is_set() {
         return None;
     }
@@ -71,7 +80,7 @@ pub fn serve(
         .name("lan-mods".into())
         .spawn(move || {
             while !serving.stopped.load(Ordering::Acquire) {
-                let stream = match listener.accept() {
+                let stream = match accept(&listener) {
                     Ok((stream, _)) => stream,
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         std::thread::sleep(Duration::from_millis(20));
@@ -79,7 +88,8 @@ pub fn serve(
                     }
                     Err(e) => {
                         log::warn!("LAN mods: accept failed: {e}");
-                        break;
+                        std::thread::sleep(Duration::from_millis(20));
+                        continue;
                     }
                 };
                 if serving.stopped.load(Ordering::Acquire) {
