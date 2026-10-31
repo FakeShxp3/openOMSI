@@ -2252,8 +2252,9 @@ pub fn settings_from_text_on(text: Option<&str>, phone: bool) -> Value {
     v["mirror_quality"] = json!("standard");
     v["vr_desktop_mirror"] = json!(true);
     v["discord_status"] = json!(true);
-    // Plugins are opt-in: new installations do not execute untrusted OMSI extensions.
-    v["disable_plugins"] = json!(true);
+    // New installs opt in to optional plugins; a pre-existing settings file without
+    // this key predates the switch and must retain its original enabled behavior.
+    v["disable_plugins"] = json!(text.is_none());
     // a Tobii eye tracker read natively, beside opentrack (the game's menu switches these)
     v["head_tracking_source"] = json!("auto");
     v["tobii_edges"] = json!(false);
