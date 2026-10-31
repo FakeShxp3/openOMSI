@@ -326,7 +326,7 @@ pub fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &mut Ser
                 return;
             }
             let Some((pos, heading)) = parse_self_teleport(arg) else {
-                lan.command(from, "admin-result 0 rejected invalid teleport coordinates");
+                lan.command(from, "admin-result 0 rejected Invalid teleport destination");
                 return;
             };
             lan.command(from, &format!("teleport {:.3} {:.3} {:.3} {:.3}", pos.x, pos.y, pos.z, heading));
@@ -343,6 +343,14 @@ pub fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &mut Ser
         "speed-limit?" => {
             if lan.peers().any(|p| p.pose.id == from && p.has_info) {
                 lan.command(from, &format!("speed-limit {}", crate::server_cfg::server_speed_limit_kmh()));
+            }
+        }
+        // Explicit capability advertisement: old player hosts never reply, preserving
+        // their historic host-only map teleport behavior without speculative requests.
+        "tp-policy?" => {
+            if lan.peers().any(|p| p.pose.id == from && p.has_info) {
+                let allowed = PLAYER_TELEPORT_ALLOWED.load(std::sync::atomic::Ordering::Relaxed);
+                lan.command(from, if allowed { "tp-policy 1" } else { "tp-policy 0" });
             }
         }
         "auth?" => {
