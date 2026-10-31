@@ -50,6 +50,7 @@ fn a_failed_candidate_keeps_the_active_room_connected() {
 struct RunningHost {
     address: String,
     session: u64,
+    peers: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     stop: std::sync::mpsc::Sender<()>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
@@ -69,15 +70,19 @@ impl RunningHost {
         let address = format!("127.0.0.1:{}", host.local_addr().unwrap().port());
         let session = host.session;
         let (stop, done) = std::sync::mpsc::channel();
+        let peers = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = peers.clone();
         let worker = std::thread::spawn(move || {
             while matches!(done.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
                 host.tick(0.01, &Pose::default());
+                observed.store(host.peer_count(), std::sync::atomic::Ordering::Relaxed);
                 std::thread::sleep(Duration::from_millis(5));
             }
         });
         Self {
             address,
             session,
+            peers,
             stop,
             worker: Some(worker),
         }
@@ -241,4 +246,65 @@ fn a_client_can_prepare_its_current_room_without_a_host_exclusion() {
     )
     .unwrap();
     assert_eq!(candidate.session.session, host.session);
+}
+
+#[test]
+fn dropping_a_websocket_candidate_sends_bye_before_closing_the_bridge() {
+    let host = RunningHost::start("maps/Shared/global.cfg");
+    let gateway = omsi_net::ws::WsGateway::start(
+        "127.0.0.1:0".parse().unwrap(),
+        host.address.parse().unwrap(),
+        Default::default(),
+    )
+    .unwrap();
+    let candidate = PreparedJoin::connect(
+        &format!("http://{}", gateway.addr),
+        "player",
+        WorldInfo::default(),
+        &Pose::default(),
+    )
+    .unwrap();
+    assert_eq!(host.peers.load(std::sync::atomic::Ordering::Relaxed), 1);
+    drop(candidate);
+    let until = Instant::now() + Duration::from_secs(2);
+    while host.peers.load(std::sync::atomic::Ordering::Relaxed) != 0 {
+        assert!(
+            Instant::now() < until,
+            "departed bus remained until the host timeout"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn candidate_vehicle_offers_do_not_replace_the_current_room_offers() {
+    let host = RunningHost::start("maps/Shared/global.cfg");
+    let gateway = omsi_net::ws::WsGateway::start(
+        "127.0.0.1:0".parse().unwrap(),
+        host.address.parse().unwrap(),
+        omsi_net::ws::ServerInfo {
+            vehicles: vec!["Vehicles/Allowed/test.bus".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let current = crate::gateway::server_offers();
+    let mut candidate = PreparedJoin::connect_for_handover(
+        &format!("http://{}", gateway.addr),
+        "player",
+        WorldInfo::default(),
+        &Pose {
+            bus: "Vehicles/Other/test.bus".into(),
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    let until = Instant::now() + Duration::from_secs(3);
+    while candidate.vehicle_allowed.is_none() && Instant::now() < until {
+        candidate.poll_vehicle_offers();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(candidate.vehicle_allowed, Some(false));
+    assert_eq!(crate::gateway::server_offers(), current);
 }

@@ -29,8 +29,12 @@ impl App {
                 })
             };
             room.session = kept.unwrap();
-            let (world, camera) =
-                loaded.map_err(|e| format!("The room's map could not be loaded: {e:#}"))?;
+            let (world, camera) = loaded.map_err(|e| {
+                format!(
+                    "{} {e:#}",
+                    omsi_ui::tr("The room's map could not be loaded:")
+                )
+            })?;
             self.clear_room_world();
             self.args = room.args;
             self.net.lan = Some(room.session);
@@ -156,6 +160,14 @@ impl App {
         }
         if let Some(traffic) = self.session.traffic.as_mut() {
             traffic.lights_only = false;
+            if let Some(lan) = self.net.lan.as_ref() {
+                traffic.set_lan_seed(lan::population_seed(lan));
+            }
+        }
+        if let (Some(schedule), Some(lan)) = (self.session.schedule.as_mut(), self.net.lan.as_ref())
+        {
+            schedule.sim.vehicle_seed =
+                omsi_script::mix_seed(lan::population_seed(lan) ^ 0x746f_7572_5f62_7573);
         }
     }
 
@@ -235,6 +247,39 @@ mod tests {
         app.session.humans = Some(humans);
         app.enable_room_population();
         assert!(!app.session.humans.as_ref().unwrap().avatar_only);
+    }
+
+    #[test]
+    fn same_map_handover_reseeds_traffic_and_timetable_for_each_room() {
+        let mut app = app();
+        let host = omsi_net::LanSession::host(0, "host", Default::default(), false).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "openomsi-room-seeds-{}-{}",
+            std::process::id(),
+            host.session
+        ));
+        let map = root.join("maps/test/global.cfg");
+        std::fs::create_dir_all(map.parent().unwrap()).unwrap();
+        std::fs::write(&map, "[name]\nSeed regression\n").unwrap();
+        let world = World::open(&root, &map, 20261031).unwrap();
+        app.session.traffic = Some(traffic::Traffic::new(&root, &world, 0).unwrap());
+        app.session.schedule = Some(schedule::Schedule::new(&root, &world, &Default::default()));
+        app.net.lan = Some(host);
+        for id in [17, 43] {
+            app.net.lan.as_mut().unwrap().session = id;
+            let seed = lan::population_seed(app.net.lan.as_ref().unwrap());
+            app.session.traffic.as_mut().unwrap().set_lan_seed(1);
+            app.session.schedule.as_mut().unwrap().sim.vehicle_seed = 1;
+            app.enable_room_population();
+            assert_eq!(app.session.traffic.as_ref().unwrap().rng, seed | 1);
+            assert_eq!(
+                app.session.schedule.as_ref().unwrap().sim.vehicle_seed,
+                omsi_script::mix_seed(seed ^ 0x746f_7572_5f62_7573)
+            );
+        }
+        drop(app);
+        drop(world);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

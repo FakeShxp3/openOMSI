@@ -114,7 +114,9 @@ fn preview() {
 fn multiplayer_preview() {
     let form = multiplayer::Multiplayer { target: "OMSI-EXAMPLE-ROOM-CODE".into(), said: None };
     for (name, light) in [("dark", false), ("light", true)] {
-        picture(&format!("multiplayer-{name}.png"), &[(form.panel_of(false, None, Some(omsi_net::Role::Client), light), Some("paste"))]);
-        picture(&format!("multiplayer-confirm-{name}.png"), &[(form.panel_of(false, Some(("maps/Grundorf/global.cfg", true)), Some(omsi_net::Role::Client), light), Some("confirm"))]);
+        picture(&format!("multiplayer-{name}.png"), &[(form.panel_of(false, None, Some(omsi_net::Role::Client), None, light), Some("paste"))]);
+        picture(&format!("multiplayer-confirm-{name}.png"), &[(form.panel_of(false, Some(("maps/Grundorf/global.cfg", true)), Some(omsi_net::Role::Client), None, light), Some("confirm"))]);
+        picture(&format!("multiplayer-host-{name}.png"), &[(form.panel_of(false, Some(("maps/Grundorf/global.cfg", false)), Some(omsi_net::Role::Host), None, light), Some("back"))]);
+        picture(&format!("multiplayer-vehicle-warning-{name}.png"), &[(form.panel_of(false, Some(("maps/Grundorf/global.cfg", false)), Some(omsi_net::Role::Client), Some(false), light), Some("back"))]);
     }
 }

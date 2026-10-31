@@ -58,6 +58,7 @@ pub(crate) struct NetState {
     /// LAN session, and the other players' buses (drawn and heard like AI vehicles) with the
     /// chat line.
     pub(crate) lan: Option<omsi_net::LanSession>,
+    pub(crate) mods_server: Option<omsi_lan::mods::Server>,
     pub(crate) remotes: lan::LanGame,
     /// The shared world: the host's traffic and people, sent (host) or mirrored (client).
     pub(crate) lan_world: crate::lan_world::LanWorld,

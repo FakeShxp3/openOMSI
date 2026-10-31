@@ -28,6 +28,11 @@ impl Multiplayer {
             app.net.room.busy(),
             map,
             app.net.lan.as_ref().map(|s| s.role),
+            app.net
+                .room
+                .ready
+                .as_ref()
+                .and_then(|room| room.vehicle_allowed),
             light,
         )
     }
@@ -37,15 +42,25 @@ impl Multiplayer {
         busy: bool,
         map: Option<(&str, bool)>,
         role: Option<omsi_net::Role>,
+        vehicle_allowed: Option<bool>,
         light: bool,
     ) -> Panel {
         let tr = omsi_ui::tr;
         let mut heading = title(&tr("Multiplayer"));
         heading.color = Some(super::theme_color(super::theme(light).TEXT));
         let mut children = vec![heading];
+        if role == Some(omsi_net::Role::Host) {
+            children.push(note(
+                &tr("Leaving or switching rooms closes your hosted room for all other players."),
+                light,
+            ));
+        }
         if busy {
             children.push(note(
-                &tr(self.said.as_deref().unwrap_or("Connecting...")),
+                &tr(self
+                    .said
+                    .as_deref()
+                    .unwrap_or("Connecting to the new room; the current game stays open")),
                 light,
             ));
         } else if let Some((map, different)) = map {
@@ -55,6 +70,9 @@ impl Multiplayer {
             } else {
                 "Joining leaves the current room. Your vehicle and position are kept on this map."
             }), light));
+            if vehicle_allowed == Some(false) {
+                children.push(note(&tr("This room does not allow your current vehicle. Joining may disconnect you."), light));
+            }
             children.push(grow_row(vec![
                 button("confirm", &tr("Join this room"), Some("check")),
                 button("back", &tr("Back"), Some("arrow_back")),
@@ -166,10 +184,11 @@ mod tests {
     #[test]
     fn a_single_player_game_offers_the_multiplayer_menu() {
         let app = app();
-        assert!(app
-            .game_menu_items()
-            .iter()
-            .any(|line| line.0 == "multiplayer"));
+        assert!(
+            app.game_menu_items()
+                .iter()
+                .any(|line| line.0 == "multiplayer")
+        );
     }
 
     #[test]

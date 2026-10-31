@@ -112,7 +112,7 @@ impl App {
     }
 
     /// Called before simulation and drawing, so a map never changes midway through a frame.
-    pub(crate) fn tick_room_switch(&mut self) {
+    pub(crate) fn tick_room_switch(&mut self, elapsed: f32) {
         if self.net.room.leave && !self.net.room.busy() {
             self.net.room.leave = false;
             self.net.room.cancel();
@@ -132,8 +132,18 @@ impl App {
                 ),
             }
         }
-        if let Some(room) = self.net.room.ready.as_mut() {
-            room.session.keepalive(0.02, &omsi_net::Pose::default());
+        let refused = self.net.room.ready.as_mut().and_then(|room| {
+            room.session.keepalive(elapsed, &omsi_net::Pose::default());
+            room.poll_vehicle_offers();
+            room.session
+                .turned_away
+                .as_ref()
+                .or(room.session.rejected.as_ref())
+                .cloned()
+        });
+        if let Some(reason) = refused {
+            self.net.room.cancel();
+            self.room_notice(reason);
         }
         if std::mem::take(&mut self.net.room.accept) {
             if let Some(room) = self.net.room.ready.take() {
@@ -190,6 +200,7 @@ impl App {
 
     /// Release every room-owned system before another room may reuse player/entity ids.
     pub(crate) fn leave_room(&mut self) {
+        self.net.mods_server = None;
         if let Some(mut voice) = self.sound.voice.take() {
             voice.stop(self.sound.audio.as_ref());
         }
@@ -253,7 +264,7 @@ impl App {
 fn prepare_room(room: PreparedJoin, mut args: Args, reload: bool) -> Result<LoadedRoom, String> {
     let mut session = room.accept();
     let mut config = args.lan_config();
-    lan::share_mods(&mut config, &mut session);
+    let _mods_server = lan::share_mods(&mut config, &mut session);
     lan::take_host_map(&mut config, &mut session);
     if session
         .welcome
@@ -284,7 +295,12 @@ fn prepare_room(room: PreparedJoin, mut args: Args, reload: bool) -> Result<Load
             lan::answering_while(&mut kept, args.bus.as_deref(), || {
                 crate::world_load::open_world(&args)
             })
-            .map_err(|e| format!("The room's map could not be opened: {e:#}"))?,
+            .map_err(|e| {
+                format!(
+                    "{} {e:#}",
+                    omsi_ui::tr("The room's map could not be opened:")
+                )
+            })?,
         )
     } else {
         None
@@ -323,7 +339,7 @@ mod tests {
         app.connect_room(&code);
         let deadline = Instant::now() + std::time::Duration::from_secs(2);
         while app.net.room.busy() && Instant::now() < deadline {
-            app.tick_room_switch();
+            app.tick_room_switch(0.02);
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         assert!(!app.net.room.busy());
@@ -343,6 +359,53 @@ mod tests {
                 .as_deref(),
             Some("You cannot join the room you are hosting")
         );
+    }
+
+    #[test]
+    fn leaving_host_stops_its_mods_server() {
+        let mut app = crate::assemble_app(Args::parse_from(["openomsi"]), Default::default());
+        let mut host = omsi_net::LanSession::host(0, "host", Default::default(), false).unwrap();
+        let address = format!("127.0.0.1:{}", host.local_addr().unwrap().port());
+        app.net.mods_server = lan::share_mods(&mut app.args.lan_config(), &mut host);
+        assert!(app.net.mods_server.is_some());
+        app.net.lan = Some(host);
+        app.leave_room();
+        assert!(app.net.lan.is_none());
+        assert!(app.net.mods_server.is_none());
+        assert!(std::net::TcpListener::bind(&address).is_ok());
+    }
+
+    #[test]
+    fn rejected_candidate_keeps_the_current_room_and_role() {
+        let mut app = crate::assemble_app(Args::parse_from(["openomsi"]), Default::default());
+        let current = omsi_net::LanSession::host(0, "current", Default::default(), false).unwrap();
+        let current_id = current.session;
+        app.net.lan = Some(current);
+        let mut host = omsi_net::LanSession::host(0, "next", Default::default(), false).unwrap();
+        let address = format!("127.0.0.1:{}", host.local_addr().unwrap().port());
+        let (stop, done) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            while matches!(done.try_recv(), Err(TryRecvError::Empty)) {
+                host.tick(0.01, &Default::default());
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        });
+        let candidate =
+            PreparedJoin::connect(&address, "player", Default::default(), &Default::default())
+                .unwrap();
+        let sent = candidate.session.sent();
+        app.net.room.ready = Some(candidate);
+        app.tick_room_switch(2.5);
+        assert!(app.net.room.ready.as_ref().unwrap().session.sent() > sent);
+        app.net.room.ready.as_mut().unwrap().session.turned_away = Some("candidate closed".into());
+        app.net.room.accept = true;
+        app.tick_room_switch(0.02);
+        assert_eq!(app.net.lan.as_ref().map(|s| s.session), Some(current_id));
+        assert_eq!(app.net.lan.as_ref().unwrap().role, omsi_net::Role::Host);
+        assert!(!app.net.room.busy());
+        assert!(app.net.room.ready.is_none());
+        stop.send(()).unwrap();
+        worker.join().unwrap();
     }
 
     #[test]

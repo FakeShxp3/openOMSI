@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 pub struct PreparedJoin {
     pub session: LanSession,
     target: String,
+    vehicle_offers: Option<std::sync::mpsc::Receiver<bool>>,
+    pub vehicle_allowed: Option<bool>,
     client: Option<(omsi_net::ws::WsClient, String)>,
 }
 
@@ -39,12 +41,50 @@ impl PreparedJoin {
         {
             return Err(SELF_JOIN.into());
         }
-        let candidate = Self::connect(target, name, world, planned)?;
+        let mut candidate = Self::connect(target, name, world, planned)?;
         // Addresses and gateways need not include a code; check the negotiated identity too.
         if hosted_session == Some(candidate.session.session) {
             return Err(SELF_JOIN.into());
         }
+        candidate.ask_vehicle_offers(&planned.bus);
         Ok(candidate)
+    }
+
+    fn ask_vehicle_offers(&mut self, bus: &str) {
+        if bus.is_empty() {
+            return;
+        }
+        let target = self
+            .client
+            .as_ref()
+            .map(|(_, url)| url.clone())
+            .or_else(|| self.session.host.map(|host| host.to_string()))
+            .unwrap_or_else(|| self.target.clone());
+        let bus = bus.to_string();
+        let (tx, rx) = std::sync::mpsc::channel();
+        if std::thread::Builder::new()
+            .name("candidate buses".into())
+            .spawn(move || {
+                if let Some(allowed) = crate::gateway::candidate_bus_allowed(&target, &bus) {
+                    let _ = tx.send(allowed);
+                }
+            })
+            .is_ok()
+        {
+            self.vehicle_offers = Some(rx);
+        }
+    }
+
+    /// Candidate offers never replace the active room's vehicle list.
+    pub fn poll_vehicle_offers(&mut self) {
+        let Some(rx) = self.vehicle_offers.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(allowed) => self.vehicle_allowed = Some(allowed),
+            Err(std::sync::mpsc::TryRecvError::Empty) => self.vehicle_offers = Some(rx),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
+        }
     }
 
     fn connect_with_wait(
@@ -94,6 +134,8 @@ impl PreparedJoin {
         Ok(Self {
             session,
             target: target.to_string(),
+            vehicle_offers: None,
+            vehicle_allowed: None,
             client,
         })
     }

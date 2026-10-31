@@ -274,6 +274,12 @@ pub fn ask_server_offers(target: &str, session: u64) {
     });
 }
 
+/// Inspect a candidate without changing the active room's server offers.
+pub(crate) fn candidate_bus_allowed(target: &str, bus: &str) -> Option<bool> {
+    let info = omsi_net::ws::query(&offers_query_target(target)?, false).ok()?;
+    (!info.vehicles.is_empty()).then(|| offers(&offered_keys(&info.vehicles), bus))
+}
+
 /// The buses the server we joined offers, as `bus_key`s (None: any, see `ServerOffers`).
 pub fn server_offers() -> Option<std::sync::Arc<std::collections::HashSet<String>>> {
     server_offers_state().list.clone()
