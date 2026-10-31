@@ -322,7 +322,7 @@ pub fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &mut Ser
             let role = adm.admins.get(&from).copied();
             let allowed = role.is_some() || PLAYER_TELEPORT_ALLOWED.load(std::sync::atomic::Ordering::Relaxed);
             if !connected || !allowed {
-                lan.command(from, "admin-result 0 rejected self-teleport is disabled on this server; authenticate with /admin or ask the owner");
+                lan.command(from, "admin-result 0 rejected Teleport is not permitted for this player");
                 return;
             }
             let Some((pos, heading)) = parse_self_teleport(arg) else {
