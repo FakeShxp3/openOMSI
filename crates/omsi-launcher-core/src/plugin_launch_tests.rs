@@ -1,8 +1,10 @@
 #[test]
 fn plugins_default_off_and_explicit_preferences_survive_settings_updates() {
-    // New installations and files without this setting must not load OMSI plugins.
-    for old in [None, Some("discord_status=1\n"), Some("version=4\n")] {
-        assert_eq!(settings_from_text(old)["disable_plugins"], json!(true));
+    // Only a truly new installation defaults optional plugins off; legacy files
+    // without the key keep their old plugins and vehicle extensions enabled.
+    assert_eq!(settings_from_text(None)["disable_plugins"], json!(true));
+    for old in ["discord_status=1\n", "version=4\n", ""] {
+        assert_eq!(settings_from_text(Some(old))["disable_plugins"], json!(false));
     }
     // Preserve existing saved choices in both directions.
     for (saved_value, disabled) in [("0", false), ("1", true)] {
