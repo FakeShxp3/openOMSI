@@ -274,7 +274,7 @@ For stability, **Settings > General > Disable plugins** is **on by default** for
 launcher installations. The next game starts without Lua plugins (including vehicle
 and scenery plugins) or legacy OMSI plugins. Normal OMSI bus scripts still run;
 plugin-dependent vehicle features may be unavailable. This preference is saved
-between launches: older files with `disable_plugins=0` continue to load plugins.
+between launches: existing settings files, including older files with no `disable_plugins` key, keep their previous plugin behavior. Explicit `disable_plugins=0` or `1` is preserved.
 To use a trusted plugin, switch **Disable plugins** off and start a new session.
 The game's standalone command-line equivalent is `--no-plugins` (direct CLI runs
 still require this flag); `OMSI_NO_PLUGINS=1` forces plugins off even when the
