@@ -9,12 +9,14 @@ use super::*;
 use omsi_ui::Vertex;
 use std::sync::Arc;
 
-// Bound the CPU meshes before creating GPU vertex buffers. Four parts share the
-// budget: ground (roads/land) and houses (shadows/3D/flat). This applies to
+// Bound CPU meshes before GPU upload only on pathological geometry builds.
+// Four parts have separate budgets: ground and three house painters. Applies to
 // the panel and the full city map, including fast mouse drags on huge maps.
-// Vertex is 60 bytes; together these caps use at most ~31 MiB per rebuild.
-const MAX_GROUND_VERTS: usize = 260_000;
-const MAX_HOUSE_VERTS: usize = 90_000;
+// Each vertex occupies 60 bytes: 2M ground + 3 x 750k house vertices
+// bound a pathological rebuild to ~243 MiB. Normal maps keep exact geometry.
+// The earlier 260k cap visibly coarsened Berlin-Spandau (see #3249).
+const MAX_GROUND_VERTS: usize = 2_000_000;
+const MAX_HOUSE_VERTS: usize = 750_000;
 
 #[cfg(test)]
 mod tests;
