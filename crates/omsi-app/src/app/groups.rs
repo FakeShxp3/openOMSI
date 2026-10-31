@@ -46,6 +46,7 @@ pub(crate) struct VrState {
 /// (none at the start)
 #[derive(Default)]
 pub(crate) struct NetState {
+    pub(crate) room: crate::app_impl::rooms::RoomSwitch,
     /// Other players on foot whose avatars are drawn: their ids and figures (`kind`).
     pub(crate) remote_walkers: Vec<(u32, u64)>,
     /// The player on foot is in this other player's bus (see `lan`: drawn from inside).
