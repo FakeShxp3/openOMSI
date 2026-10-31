@@ -1097,6 +1097,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
             match found {
                 Some((pos, heading)) => {
                     if crate::admin::request_teleport(app, pos, heading) {
+                        app.service_msg = Some((omsi_ui::tr("The bus stands at the start point").into_owned(), 3.0));
                         app.service_event("teleport", app.menu_by(), None);
                     }
                 }
