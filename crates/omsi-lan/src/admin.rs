@@ -289,8 +289,6 @@ fn fresh_challenge() -> String {
 /// Who the commands of the web gateway's `POST /admin` come from: no player has this id.
 pub const LOCAL_ADMIN: u32 = u32::MAX;
 
-/// A command a player sent the dedicated server (`hub`: the administration's records, see
-/// `exec`).
 /// Dedicated-server policy. By default only authenticated admins/moderators may relocate
 /// their own bus; a server operator can opt ordinary players in with server.cfg.
 static PLAYER_TELEPORT_ALLOWED: std::sync::atomic::AtomicBool =
@@ -311,6 +309,8 @@ pub fn parse_self_teleport(arg: &str) -> Option<(glam::DVec3, f64)> {
     Some((glam::DVec3::new(*x, *y, *z), *heading))
 }
 
+/// A command a player sent the dedicated server (`hub`: the administration's records, see
+/// `exec`).
 #[allow(clippy::too_many_arguments)]
 pub fn server_command(lan: &mut LanSession, from: u32, text: &str, adm: &mut ServerAdmin, positions: &dyn Fn(u32) -> Option<(glam::DVec3, f64)>, rules: &ServerRules, hub: Option<&Hub>) {
     let (verb, arg) = text.split_once(' ').unwrap_or((text, ""));
