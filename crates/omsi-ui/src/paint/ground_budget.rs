@@ -77,7 +77,7 @@ struct Grid {
 
 impl Grid {
     fn new(limit: usize, reach: f32, mpp: f32) -> Self {
-        let side = ((limit / 6) as f64).sqrt().floor().clamp(1.0, 256.0) as usize;
+        let side = ((limit / 6) as f64).sqrt().floor().clamp(1.0, 512.0) as usize;
         Self {
             side,
             reach,
