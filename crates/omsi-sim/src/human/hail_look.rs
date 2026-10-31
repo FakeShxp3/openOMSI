@@ -334,20 +334,22 @@ mod full_hail_2212_tests {
     }
 }
 
-  /// A bus at capacity never receives a raised-arm hailing request.
-  pub fn visual_hail_action(hailing: bool, reaction: bool, full: bool) -> (bool, bool) {
-      (hailing && !full, reaction && full)
-  }
-  #[cfg(test)]
-  mod visual_action_combinations_tests {
-      use super::visual_hail_action;
-      #[test]
-      fn all_four_switch_combinations_leave_full_bus_arms_lowered() {
-          for hail in [false, true] {
-              for react in [false, true] {
-                  assert_eq!(visual_hail_action(hail, react, false), (hail, false));
-                  assert_eq!(visual_hail_action(hail, react, true), (false, react));
-              }
-          }
-      }
-  }
+/// A bus at capacity never receives a raised-arm hailing request.
+pub fn visual_hail_action(hailing: bool, reaction: bool, full: bool) -> (bool, bool) {
+    (hailing && !full, reaction && full)
+}
+
+#[cfg(test)]
+mod visual_action_combinations_tests {
+    use super::visual_hail_action;
+
+    #[test]
+    fn all_four_switch_combinations_leave_full_bus_arms_lowered() {
+        for hail in [false, true] {
+            for react in [false, true] {
+                assert_eq!(visual_hail_action(hail, react, false), (hail, false));
+                assert_eq!(visual_hail_action(hail, react, true), (false, react));
+            }
+        }
+    }
+}
