@@ -33,7 +33,7 @@ pub(crate) fn click(app: &mut crate::App, id: &str) {
     }
     let Some(heading) = app.camera.as_ref().map(|c| c.yaw as f64).or_else(|| app.player.as_ref().map(|p| p.vehicle.heading)) else { return };
     if crate::admin::request_teleport(app, at, heading) {
-        app.service_msg = Some(("The bus stands where the map was clicked".into(), 3.0));
+        app.service_msg = Some((omsi_ui::tr("The bus stands where the map was clicked").into_owned(), 3.0));
         app.service_event("teleport", "player", None);
     }
 }
