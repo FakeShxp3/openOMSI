@@ -192,7 +192,7 @@ impl Panel {
         if self.may_world() && self.players.len() > 1 {
             // Dedicated servers have no driver's seat: "bring" uses the authenticated
             // administrator's network pose, not the server process's nonexistent bus.
-            out.push((tr("Bring everybody to my bus"), "send bringall".into()));
+            out.push((tr("Bring everybody here"), "send bringall".into()));
         }
         if !self.state.is_empty() {
             self.world_lines(&mut out, tr);
@@ -275,11 +275,11 @@ impl Panel {
             (tr("Allow voice chat again"), format!("send vunmute {}", t.tag())),
         ];
         if p.state == PlayerState::Driving {
-            lines.push((tr("Go to this player's bus"), format!("send goto {}", t.tag())));
+            lines.push((tr("go to"), format!("send goto {}", t.tag())));
             if self.may_world() {
-                lines.push((tr("Bring this player's bus here"), format!("send bring {}", t.tag())));
+                lines.push((tr("bring here"), format!("send bring {}", t.tag())));
             }
-            lines.push((tr("Put this player's bus back on its wheels"), format!("send unstick {}", t.tag())));
+            lines.push((tr("put their bus back on its wheels"), format!("send unstick {}", t.tag())));
         }
         lines
     }
