@@ -111,7 +111,7 @@ fn apply_optional_bus_visual(
             st.hail_strength = 0.0;
             st.full_look_strength = 0.0;
         }
-        let wave = st.hail_wrist.advance(signalling, dt, p.id);
+        let wave = st.hail_wrist.advance(st.hail_strength > 0.001, dt, p.id);
         let looking = st.hail_strength.max(st.full_look_strength);
         if looking > 0.001 && enhanced && !p.puppet {
             let target = p.hail_target.and_then(|bus|
