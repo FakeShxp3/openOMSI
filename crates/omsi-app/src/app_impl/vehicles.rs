@@ -144,6 +144,7 @@ impl App {
         let (pos, heading) = l.at(s);
         let heading = heading as f64;
         if crate::admin::request_teleport(self, pos, heading) {
+            self.service_msg = Some((omsi_ui::tr("The bus stands where the map was clicked").into_owned(), 3.0));
             self.service_event("teleport", "player", None);
         }
     }
