@@ -35,7 +35,7 @@ fn point_lights(p: vec3<f32>, n: vec3<f32>, map_k: f32) -> vec3<f32> {
             if (l.dir.w >= -1.5 && l.extra.z != 0.0) {
                 // a Direct3D spot of the classic picture (lights.rs `push_classic_spot`): a
                 // vehicle's [spotlight] (its range negative) is the player's alone, lit by
-                // `classic_spot` in the fragment shader; another - a [spotlight_2], a cookie's
+                // `classic_spot` at the vertices; another - a [spotlight_2], a cookie's
                 // cone - is lit so here, its ambient light with the diffuse
                 if (l.extra.z < 0.0) {
                     continue;
@@ -113,8 +113,11 @@ fn d3d_spot(p: vec3<f32>, n: vec3<f32>, source: vec3<f32>, dir: vec4<f32>, inner
     return array<vec3<f32>, 2>(lit * 0.3 * max(dot(n, to_light / dl), 0.0), lit * 0.1);
 }
 
-// The player's [spotlight] (`camera.spot`, see setup.rs `classic_spot`), evaluated per
-// fragment so large triangles cannot spread light outside the cone or across the bus.
+// The classic picture's headlight at a vertex: Omsi.exe's one Direct3D spot light, the
+// player's [spotlight] (`camera.spot`, see setup.rs `classic_spot`), lit at the vertices as
+// its fixed function lights them. Across a road, whose vertices lie at its edges, the pool
+// is spread as OMSI 2 spreads it: lit per pixel it was brightest on the crown of the road
+// in front of the bus and gone far sooner. `vs_main` excludes the player's own vehicle.
 // [0] is the vehicle-face origin for occlusion; [3] is the declared source for lighting.
 // Nothing beyond 4 x its range, as Direct3D cuts it off.
 fn classic_spot(p: vec3<f32>, n: vec3<f32>) -> array<vec3<f32>, 2> {

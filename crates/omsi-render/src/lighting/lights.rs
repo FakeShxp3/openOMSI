@@ -58,7 +58,7 @@ pub struct PointLight {
     /// `cookies`) within its cone, when a layer is free for the picture that frame.
     pub cookie: Option<Cookie>,
     pub flash: bool,
-    /// A classic-picture spot, evaluated per fragment with Direct3D's attenuation.
+    /// A classic-picture spot with Direct3D's attenuation (the player's is vertex-lit).
     pub d3d_spot: Option<D3dSpot>,
 }
 
