@@ -6,7 +6,11 @@ impl App {
     /// LAN play, once a frame: send our bus, take in the others', and keep a drawn
     /// vehicle for each of them.
     pub(crate) fn tick_lan(&mut self, dt: f32) {
-        if self.net.lan.is_none() { omsi_lan::commands::set_speed_limit_kmh(0); }
+        if self.net.lan.is_none() {
+            omsi_lan::commands::set_speed_limit_kmh(0);
+            self.net.speed_limit_welcome = None;
+            self.net.dedicated_teleport = None;
+        }
         let walker = self.walker_pose();
         let radio_keyed = self.voice_radio_keyed();
         let Some(lan) = self.net.lan.as_mut() else {
@@ -24,8 +28,19 @@ impl App {
             }
             return;
         };
-        if lan.role == omsi_net::Role::Client && lan.connected && self.perf.total_frames % 180 == 0 {
-            lan.command(1, "speed-limit?");
+        if lan.role == omsi_net::Role::Client {
+            if !lan.connected {
+                self.net.speed_limit_welcome = None;
+                self.net.dedicated_teleport = None;
+                omsi_lan::commands::set_speed_limit_kmh(0);
+            } else if self.net.speed_limit_welcome != Some(lan.welcomes) {
+                // A welcome is generated on first join and on reconnect. One question per
+                // welcome avoids spamming older hosts that do not implement this policy.
+                self.net.speed_limit_welcome = Some(lan.welcomes);
+                self.net.dedicated_teleport = None;
+                lan.command(1, "speed-limit?");
+                lan.command(1, "tp-policy?");
+            }
         }
         self.gfx.sim_view.lan.capture_freetex(self.player.as_ref(), &self.args.root);
         let duty = self
@@ -120,10 +135,22 @@ impl App {
         if text.starts_with("tp-request ") {
             if let Some(l) = self.net.lan.as_mut().filter(|l| l.role == omsi_net::Role::Host) {
                 if l.peers().any(|p| p.pose.id == from && p.has_info) {
-                    l.command(from, "admin-result 0 rejected self-teleport requires a dedicated server with administrator authentication");
+                    l.command(from, "admin-result 0 rejected In a LAN session only the host moves vehicles on the map");
                 }
             }
             return;
+        }
+        // Player-hosted sessions do not advertise dedicated-server capabilities.
+        if text == "tp-policy?" { return; }
+        if from == 1 {
+            if let Some(policy) = text.strip_prefix("tp-policy ") {
+                self.net.dedicated_teleport = match policy.trim() {
+                    "0" => Some(false),
+                    "1" => Some(true),
+                    _ => None,
+                };
+                return;
+            }
         }
         // a plugin's message to the same plugin here (`lan.send`)
         if self.plugin_lan_message(from, text) {
