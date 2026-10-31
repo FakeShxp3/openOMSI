@@ -396,6 +396,7 @@ fn set_cab_wheel_rotation(app: &mut App, v: f32) -> (&'static str, String) {
 pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
     let s = &app.settings;
     Some(match id {
+        "passenger_hailing" => s.passenger_hailing,
         "navigator" => if app.vr_active() { app.vr_nav_profile().enabled } else { app.menus.navigator.as_ref().is_some_and(|n| n.enabled) },
         "nav_ai" => app.menus.navigator.as_ref().map_or(s.nav_ai, |n| n.show_ai),
         "nav_surface" => app.menus.navigator.as_ref().map_or(s.nav_surface, |n| n.show_surface),
@@ -497,6 +498,13 @@ pub(super) fn toggle_now(app: &App, id: &str) -> Option<bool> {
 pub(super) fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String)> {
     let bit = (on as u8).to_string();
     match id {
+        "passenger_hailing" => {
+            app.settings.passenger_hailing = on;
+            if let Some(h) = app.session.humans.as_mut() {
+                h.visual_hailing = on && app.settings.passenger_animation == "enhanced";
+            }
+            Some(("passenger_hailing", bit))
+        },
         "navigator" => {
             if app.vr_active() {
                 if app.vr_nav_profile().enabled != on { app.vr_nav_adjust("enabled", 1.0); }
