@@ -222,12 +222,20 @@ fn teleport_beside(app: &mut App, pos: glam::DVec3, heading: f64) {
 /// The host's existing `teleport` reply applies the move and publishes the next LAN pose.
 pub(crate) fn request_teleport(app: &mut App, at: glam::DVec3, heading: f64) -> bool {
     if !at.is_finite() || !heading.is_finite() {
-        app.service_msg = Some(("Invalid teleport destination".into(), 3.0));
+        app.service_msg = Some((omsi_ui::tr("Invalid teleport destination").into_owned(), 3.0));
         return false;
     }
-    if let Some(lan) = app.net.lan.as_mut().filter(|l| l.role == Role::Client) {
-        lan.command(1, &format!("tp-request {:.3} {:.3} {:.3} {:.3}", at.x, at.y, at.z, heading));
-        app.service_msg = Some(("Teleport requested from the server".into(), 3.0));
+    if app.net.lan.as_ref().is_some_and(|l| l.role == Role::Client) {
+        if app.net.dedicated_teleport.is_none() {
+            // A player-hosted LAN game (or an older host) never advertises this
+            // dedicated-server feature; keep the original local explanation.
+            app.service_msg = Some((omsi_ui::tr("In a LAN session only the host moves vehicles on the map").into_owned(), 3.0));
+            return false;
+        }
+        if let Some(lan) = app.net.lan.as_mut() {
+            lan.command(1, &format!("tp-request {:.3} {:.3} {:.3} {:.3}", at.x, at.y, at.z, heading));
+        }
+        app.service_msg = Some((omsi_ui::tr("Request sent").into_owned(), 3.0));
         return false;
     }
     teleport(app, at, heading);
