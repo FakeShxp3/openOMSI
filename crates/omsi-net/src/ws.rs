@@ -1209,14 +1209,15 @@ mod tests {
     }
 
     /// UDP and TCP reserve ports independently: a random UDP port may already be
-    /// occupied on TCP when tests run concurrently. Retry only that bind collision.
+    /// occupied on TCP when tests run concurrently. Windows can report an
+    /// excluded TCP port as PermissionDenied (10013), rather than AddrInUse.
     fn session_and_mod_listener() -> (UdpSocket, TcpListener) {
         for _ in 0..32 {
             let session = UdpSocket::bind("127.0.0.1:0").unwrap();
             let target = session.local_addr().unwrap();
             match TcpListener::bind(("127.0.0.1", target.port())) {
                 Ok(mods) => return (session, mods),
-                Err(e) if e.kind() == ErrorKind::AddrInUse => continue,
+                Err(e) if matches!(e.kind(), ErrorKind::AddrInUse | ErrorKind::PermissionDenied) => continue,
                 Err(e) => panic!("cannot bind mods listener at {target}: {e}"),
             }
         }
