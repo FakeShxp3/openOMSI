@@ -62,7 +62,6 @@ fn picture(width: u32, height: u32) -> omsi_texture::TextureData {
 fn memory_pressure_retries_rgba_and_preserves_a_working_texture() {
     let renderer = renderer(true);
     let mut scene = renderer.new_scene();
-    // The non-square/non-power-of-two dimensions mirror scenery in the report.
     let data = picture(720, 405);
     let limit = AllocationLimit::set(100_000);
     let id = renderer.add_texture_data(&mut scene, &data);
@@ -113,8 +112,6 @@ fn memory_pressure_uses_authored_bc_levels_and_handles_the_smallest_blocks() {
         prepared.0.texture.format(),
         wgpu::TextureFormat::Bc1RgbaUnormSrgb
     );
-    // Below a block's dimensions the retry decodes, retaining alpha instead of making
-    // an illegal BC texture or stopping the retries prematurely.
     TEXTURE_TEST_MAX_BYTES.set(Some(4));
     let last = prepare_texture(&renderer.device, &renderer.queue, &data).unwrap();
     assert_eq!(last.0.size, (1, 1));
@@ -128,7 +125,6 @@ fn malformed_mips_are_not_mistaken_for_memory_pressure() {
     let mut data = picture(8, 8);
     data.gpu_mips = false;
     data.levels[0].truncate(1);
-    // A valid smaller level does not hide corrupt source pixels.
     data.levels.push(vec![255; 4 * 4 * 4]);
     let prepared = prepare_texture(&renderer.device, &renderer.queue, &data).unwrap();
     assert_eq!(prepared.bytes(), 0);

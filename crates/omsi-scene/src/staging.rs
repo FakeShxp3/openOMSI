@@ -1164,13 +1164,13 @@ pub(super) struct TexEntry {
     pub(super) texels: u64,
     /// Bytes on the GPU (all levels, as they are now).
     pub(super) bytes: u64,
-    /// The source's full mip chain, also known when an upload fell back to a stand-in.
     pub(super) full_bytes: u64,
     pub(super) format: omsi_texture::PixelFormat,
     /// Finest mip levels let go while the textures are over their budget.
     pub(super) dropped: u32,
-    /// A restore that still could not fit waits before trying the source again.
     pub(super) retry_after: Option<std::time::Instant>,
+    pub(super) squeezed: bool,
+    pub(super) near_restore: bool,
 }
 
 impl TexEntry {
@@ -1179,6 +1179,7 @@ impl TexEntry {
             id, alpha: data.has_alpha, users: 1,
             texels: data.width as u64 * data.height as u64,
             bytes: 0, full_bytes: data.gpu_bytes(), format: data.format, dropped: 0, retry_after: None,
+            squeezed: false, near_restore: false,
         };
         entry.record_upload(data, scene);
         entry
@@ -1189,10 +1190,11 @@ impl TexEntry {
         self.full_bytes = source.gpu_bytes();
         self.format = source.format;
         self.texels = source.width as u64 * source.height as u64;
+        self.squeezed = false;
+        self.near_restore = false;
         let (w, h) = scene.texture_size_of(self.id).unwrap_or((1, 1));
         self.dropped = omsi_texture::gpu::mip_count(source.width, source.height)
             .saturating_sub(omsi_texture::gpu::mip_count(w, h));
-        // A failed upload must remain eligible for recovery, even for a 1x1 source.
         if self.bytes == 0 {
             self.dropped = self.dropped.max(1);
         }

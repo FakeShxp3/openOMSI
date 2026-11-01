@@ -116,7 +116,6 @@ enum TextureCreationError {
     Invalid,
 }
 
-// Per-thread fault injection keeps allocation tests independent of other renderers.
 #[cfg(test)]
 thread_local! {
     static TEXTURE_TEST_MAX_BYTES: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
@@ -157,10 +156,6 @@ fn create_texture_checked(device: &wgpu::Device, desc: &wgpu::TextureDescriptor)
     Err(reason)
 }
 
-/// A failed content upload can still show its picture (including cut-out alpha) at a
-/// coarser level. Keep authored mip levels and BC blocks whenever their size is legal.
-/// Workers have no mip-rendering pipeline, so the rare single-level fallback builds its
-/// remaining levels on the CPU. Validation errors never enter this recovery path.
 fn smaller_upload(data: &omsi_texture::TextureData) -> Option<omsi_texture::TextureData> {
     let side = data.width.max(data.height);
     if side <= 1 {
@@ -290,7 +285,6 @@ pub fn prepare_texture(
     let texture = match made {
         Ok(texture) => texture,
         Err(TextureCreationError::OutOfMemory) => {
-            // Do not hold the GL worker lock across another upload.
             drop(_turn);
             return smaller_upload(data)
                 .and_then(|small| prepare_texture(device, queue, &small))

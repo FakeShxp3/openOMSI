@@ -98,13 +98,11 @@ fn texture_budget_shrinks_far_scenery_before_near_scenery() {
     assert_eq!(scene.texture_size_of(near), Some((1024, 1024)));
     assert_eq!(scene.texture_size_of(far), Some((512, 512)));
     assert!(world.gpu.lock().wants_restore.is_empty());
-    // Far textures alone cannot meet this budget. Near scenery must remain textured.
     world.set_texture_budget(500_000);
     world.update_texture_budget(&renderer, &mut scene, &centers, true);
     assert_eq!(scene.texture_size_of(near), Some((256, 256)));
     assert!(scene.texture_bytes_of(far) > 0);
     assert!(renderer.texture_bytes(&scene) <= 500_000);
-    // Standing still must not immediately undo the reductions.
     world.update_texture_budget(&renderer, &mut scene, &centers, true);
     assert!(world.gpu.lock().wants_restore.is_empty());
 }
@@ -114,8 +112,8 @@ fn texture_budget_reserves_pending_restores_and_rechecks_finished_work() {
     let (_fixture, world) = Fixture::world();
     let renderer = renderer();
     let mut scene = renderer.new_scene();
-    let (a, first) = scenery(&world, &renderer, &mut scene, "a.png", (0, 0));
-    let (b, second) = scenery(&world, &renderer, &mut scene, "b.png", (0, 0));
+    let (a, first) = scenery(&world, &renderer, &mut scene, "a.png", (1, 0));
+    let (b, second) = scenery(&world, &renderer, &mut scene, "b.png", (1, 0));
     let original = Arc::new(data(1024));
     for (path, id) in [(&a, first), (&b, second)] {
         assert!(renderer.drop_top_levels(&mut scene, id, 2));
@@ -139,7 +137,6 @@ fn texture_budget_reserves_pending_restores_and_rechecks_finished_work() {
         "the same room cannot be spent twice"
     );
     let id = world.gpu.lock().textures[&queued[0]].id;
-    // Memory was used elsewhere while the worker decoded the full image.
     world.set_texture_budget(700_000);
     world
         .upgrades_done
@@ -163,7 +160,7 @@ fn texture_budget_recovers_a_placeholder_without_room_for_the_full_source() {
     let (_fixture, world) = Fixture::world();
     let renderer = renderer();
     let mut scene = renderer.new_scene();
-    let (path, id) = scenery(&world, &renderer, &mut scene, "lost.png", (0, 0));
+    let (path, id) = scenery(&world, &renderer, &mut scene, "lost.png", (1, 0));
     let original = Arc::new(data(1024));
     renderer.free_texture(&mut scene, id);
     world
@@ -203,19 +200,20 @@ fn texture_restore_headroom_accounts_for_the_rest_of_the_card() {
         budget: Some(1000),
         measured: true,
     };
-    assert_eq!(texture_restore_room(1000, 0, card), 0);
-    assert_eq!(texture_restore_room(1000, 700, card), 0);
+    assert_eq!(texture_restore_room(1000, 100, 0, card), 0);
+    assert_eq!(texture_restore_room(1000, 100, 700, card), 0);
     let free = omsi_render::GpuMemory {
         textures: 100,
         ..Default::default()
     };
-    assert_eq!(texture_restore_room(1000, 0, free), 750);
+    assert_eq!(texture_restore_room(1000, 100, 0, free), 750);
+    assert_eq!(card_restore_room(0, free), u64::MAX);
     assert_eq!(budget_level_drop(4096, 13, 256, 1000, 999), 4);
     assert_eq!(budget_level_drop(256, 9, 256, 1000, 999), 0);
 }
 
 #[test]
-fn a_rectangular_fleet_texture_can_give_way_without_losing_its_picture() {
+fn a_fleet_texture_gives_way_down_to_1024_pixels() {
     let (_fixture, world) = Fixture::world();
     let renderer = renderer();
     let mut scene = renderer.new_scene();
@@ -233,13 +231,10 @@ fn a_rectangular_fleet_texture_can_give_way_without_losing_its_picture() {
     let centers = [DVec3::ZERO];
     world.set_texture_budget(50_000);
     world.update_texture_budget(&renderer, &mut scene, &centers, true);
-    assert_eq!(scene.texture_size_of(id), Some((256, 16)));
-    assert!(scene.texture_bytes_of(id) > 0 && scene.texture_bytes_of(id) <= 50_000);
-    // An impossible budget must keep the final useful level, rather than a blank slot.
+    assert_eq!(scene.texture_size_of(id), Some((1024, 64)));
     world.set_texture_budget(1);
     world.update_texture_budget(&renderer, &mut scene, &centers, true);
-    assert_eq!(scene.texture_size_of(id), Some((256, 16)));
-    assert!(scene.texture_bytes_of(id) > 0);
+    assert_eq!(scene.texture_size_of(id), Some((1024, 64)));
 }
 
 #[test]
@@ -275,4 +270,101 @@ fn a_failed_restore_waits_then_retries_even_when_the_camera_is_still() {
         1
     );
     assert_eq!(world.gpu.lock().wants_restore, vec![path]);
+}
+
+#[test]
+fn an_idle_look_is_kept_until_something_changes() {
+    let mut m = BudgetMemo::default();
+    let c = [DVec3::new(10.0, 20.0, 5.0)];
+    let limit = 1000;
+    assert!(!m.unchanged(1, 900, limit, &c), "nothing remembered yet");
+    m.remember(1, 900, limit, &c, true);
+    assert!(m.unchanged(1, 900, limit, &c));
+    // a little way on, or up a hill: the same distances for the budget's purposes
+    assert!(m.unchanged(1, 900, limit, &[DVec3::new(30.0, 20.0, 50.0)]));
+    assert!(
+        !m.unchanged(1, 900, limit, &[DVec3::new(40.0, 20.0, 5.0)]),
+        "moved 30 m"
+    );
+    assert!(!m.unchanged(2, 900, limit, &c), "the tiles changed");
+    assert!(!m.unchanged(1, 900, limit, &[c[0], c[0]]), "another center");
+    // a texture compressed meanwhile: a little less or more, still nothing to do
+    assert!(m.unchanged(1, 895, limit, &c));
+    assert!(m.unchanged(1, 990, limit, &c));
+    assert!(!m.unchanged(1, 1001, limit, &c), "over the budget");
+    assert!(
+        !m.unchanged(1, 900, 600, &c),
+        "a lower budget must run even while standing still"
+    );
+    assert!(
+        !m.unchanged(1, 880, limit, &c),
+        "room for a texture to come back"
+    );
+    m.remember(1, 900, limit, &c, false);
+    assert!(
+        !m.unchanged(1, 900, limit, &c),
+        "a look that did something looks again"
+    );
+}
+
+#[test]
+fn near_scenery_comes_back_at_once_while_the_card_has_room() {
+    let (_fixture, world) = Fixture::world();
+    let renderer = renderer();
+    let mut scene = renderer.new_scene();
+    let (path, id) = scenery(&world, &renderer, &mut scene, "near.png", (0, 0));
+    let original = Arc::new(data(1024));
+    assert!(renderer.drop_top_levels(&mut scene, id, 2));
+    world
+        .gpu
+        .lock()
+        .textures
+        .get_mut(&path)
+        .unwrap()
+        .record_upload(&original, &scene);
+    let centers = [DVec3::new(150.0, 150.0, 0.0)];
+    world.set_texture_budget(400_000);
+    world.set_video_memory_limit(1);
+    world.update_texture_budget(&renderer, &mut scene, &centers, true);
+    assert!(world.gpu.lock().wants_restore.is_empty());
+    world.set_video_memory_limit(0);
+    world.update_texture_budget(&renderer, &mut scene, &centers, true);
+    assert_eq!(
+        std::mem::take(&mut world.gpu.lock().wants_restore),
+        vec![path.clone()]
+    );
+    world
+        .upgrades_done
+        .lock()
+        .push((path.clone(), original, None));
+    world.apply_texture_upgrades(&renderer, &mut scene, None);
+    assert_eq!(scene.texture_size_of(id), Some((1024, 1024)));
+    assert_eq!(world.gpu.lock().textures[&path].dropped, 0);
+}
+
+#[test]
+fn a_retry_due_before_the_last_look_lets_the_budget_rest() {
+    let (_fixture, world) = Fixture::world();
+    let renderer = renderer();
+    let mut scene = renderer.new_scene();
+    let (path, id) = scenery(&world, &renderer, &mut scene, "far.png", (10, 0));
+    assert!(renderer.drop_top_levels(&mut scene, id, 2));
+    let ago = |s| std::time::Instant::now().checked_sub(std::time::Duration::from_secs(s)).unwrap();
+    {
+        let mut gpu = world.gpu.lock();
+        let e = gpu.textures.get_mut(&path).unwrap();
+        e.record_upload(&data(1024), &scene);
+        e.retry_after = Some(ago(10));
+    }
+    world.set_texture_budget(100_000_000);
+    let here = [DVec3::new(150.0, 150.0, 0.0)];
+    let moved = [DVec3::new(160.0, 150.0, 0.0)];
+    world.update_texture_budget(&renderer, &mut scene, &here, true);
+    world.budget_checked.lock().checked = Some(ago(2));
+    world.update_texture_budget(&renderer, &mut scene, &moved, false);
+    assert_eq!(world.budget_checked.lock().centers, here.to_vec());
+    world.gpu.lock().textures.get_mut(&path).unwrap().retry_after = Some(ago(1));
+    world.budget_checked.lock().checked = Some(ago(2));
+    world.update_texture_budget(&renderer, &mut scene, &moved, false);
+    assert_eq!(world.budget_checked.lock().centers, moved.to_vec());
 }

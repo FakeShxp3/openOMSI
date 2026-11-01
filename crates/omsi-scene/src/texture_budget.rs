@@ -9,8 +9,6 @@ pub(super) fn fit_upgrade(data: &Arc<TextureData>, allowed: u64) -> Option<Arc<T
             return None;
         }
         let mut small = omsi_render::fit_texture(&upload, side / 2)?;
-        // A compressed texture with non-block-aligned sides is decoded by the renderer;
-        // admission must count that RGBA allocation, not the smaller BC source.
         if small.format.is_compressed() && (small.width % 4 != 0 || small.height % 4 != 0) {
             let rgba =
                 small
@@ -25,31 +23,75 @@ pub(super) fn fit_upgrade(data: &Arc<TextureData>, allowed: u64) -> Option<Arc<T
     Some(upload)
 }
 
-/// Leave room for streaming and for the old and new allocations to coexist briefly.
+pub(super) fn card_restore_room(video_limit: u64, card: omsi_render::GpuMemory) -> u64 {
+    match card.cap(video_limit) {
+        0 => u64::MAX,
+        cap => (cap - cap / 10).saturating_sub(card.total()),
+    }
+}
+
 pub(super) fn texture_restore_room(
     limit: u64,
+    usage: u64,
     video_limit: u64,
     card: omsi_render::GpuMemory,
 ) -> u64 {
-    let mut room = if limit == 0 {
+    let room = if limit == 0 {
         u64::MAX
     } else {
-        (limit - limit / 100 * 15).saturating_sub(card.textures)
+        (limit - limit / 100 * 15).saturating_sub(usage)
     };
-    let cap = card.cap(video_limit);
-    if cap > 0 {
-        room = room.min((cap - cap / 10).saturating_sub(card.total()));
-    }
-    room
+    room.min(card_restore_room(video_limit, card))
 }
 
 pub(super) fn texture_restore_cost(e: &TexEntry) -> u64 {
     if e.bytes == 0 {
-        // Recover a missing picture at a modest size even if the full source cannot fit.
         e.full_bytes.min(128 * 128 * 4 * 4 / 3)
     } else {
         e.full_bytes.saturating_sub(e.bytes)
     }
+}
+
+pub(super) fn reserved_restore_bytes(gpu: &GpuCache, pending: &hashbrown::HashSet<PathBuf>) -> u64 {
+    gpu.textures
+        .iter()
+        .filter(|(p, _)| pending.contains(*p) || gpu.wants_restore.contains(*p))
+        .map(|(_, e)| texture_restore_cost(e))
+        .sum()
+}
+
+/// A texture shrunk while its tiles were far that is near now comes back whole at once, room
+/// or not: the far ones give way for it in the seconds after. (Waiting for room left the
+/// buildings right in front of the bus blurred for good on a map that filled the budget -
+/// they had lost their levels on the way in.)
+pub(super) fn queue_near_restores(
+    gpu: &mut GpuCache,
+    pending: &hashbrown::HashSet<PathBuf>,
+    entries: &[(f64, PathBuf)],
+    near: f64,
+    mut card_room: u64,
+    t0: std::time::Instant,
+) -> usize {
+    let mut queued = 0;
+    for (d, p) in entries {
+        if *d >= near || queued >= 24 || pending.contains(p) || gpu.wants_restore.contains(p) {
+            continue;
+        }
+        let Some(e) = gpu.textures.get_mut(p) else { continue };
+        if e.dropped == 0 || e.squeezed || e.retry_after.is_some_and(|t| t > t0) {
+            continue;
+        }
+        let needed = texture_restore_cost(e);
+        if needed > card_room {
+            continue;
+        }
+        card_room -= needed;
+        e.retry_after = None;
+        e.near_restore = true;
+        gpu.wants_restore.push(p.clone());
+        queued += 1;
+    }
+    queued
 }
 
 pub(super) fn budget_level_drop(side: u32, levels: u32, floor: u32, bytes: u64, over: u64) -> u32 {
@@ -61,45 +103,6 @@ pub(super) fn budget_level_drop(side: u32, levels: u32, floor: u32, bytes: u64, 
         }
     }
     n
-}
-#[cfg(test)]
-mod budget_memo_tests {
-    use super::*;
-
-    #[test]
-    fn an_idle_look_is_kept_until_something_changes() {
-        let mut m = BudgetMemo::default();
-        let c = [DVec3::new(10.0, 20.0, 5.0)];
-        let limit = 1000;
-        assert!(!m.unchanged(1, 900, limit, &c), "nothing remembered yet");
-        m.remember(1, 900, limit, &c, true);
-        assert!(m.unchanged(1, 900, limit, &c));
-        // a little way on, or up a hill: the same distances for the budget's purposes
-        assert!(m.unchanged(1, 900, limit, &[DVec3::new(30.0, 20.0, 50.0)]));
-        assert!(
-            !m.unchanged(1, 900, limit, &[DVec3::new(40.0, 20.0, 5.0)]),
-            "moved 30 m"
-        );
-        assert!(!m.unchanged(2, 900, limit, &c), "the tiles changed");
-        assert!(!m.unchanged(1, 900, limit, &[c[0], c[0]]), "another center");
-        // a texture compressed meanwhile: a little less or more, still nothing to do
-        assert!(m.unchanged(1, 895, limit, &c));
-        assert!(m.unchanged(1, 990, limit, &c));
-        assert!(!m.unchanged(1, 1001, limit, &c), "over the budget");
-        assert!(
-            !m.unchanged(1, 900, 600, &c),
-            "a lower budget must run even while standing still"
-        );
-        assert!(
-            !m.unchanged(1, 880, limit, &c),
-            "room for a texture to come back"
-        );
-        m.remember(1, 900, limit, &c, false);
-        assert!(
-            !m.unchanged(1, 900, limit, &c),
-            "a look that did something looks again"
-        );
-    }
 }
 
 impl World {

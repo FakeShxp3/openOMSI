@@ -802,6 +802,8 @@ impl World {
                 }
             }
         }
+        let mut usage = self.budget_checked.lock().in_use;
+        let video_limit = self.video_memory_limit.load(std::sync::atomic::Ordering::Relaxed);
         loop {
             if deadline
                 .map(|d| std::time::Instant::now() >= d)
@@ -819,27 +821,25 @@ impl World {
             }
             // the texture is still up under that name (it may have gone meanwhile)
             let vid = self.vehicle_textures.lock().get(&path).map(|e| e.0);
-            let id = match vid {
-                Some(id) => Some(id),
-                None => self.gpu.lock().textures.get(&path).map(|e| e.id),
+            let found = match vid {
+                Some(id) => Some((id, false)),
+                None => self.gpu.lock().textures.get(&path).map(|e| (e.id, e.near_restore)),
             };
-            let Some(id) = id else { continue };
+            let Some((id, near)) = found else { continue };
             if data.levels.is_empty() {
                 // nothing better to be had (an upgrade that stays RGBA)
                 continue;
             }
-            // Workers may finish after another upload has used the room that admitted
-            // this restore. Fit it to the room available now; a compression upgrade may
-            // always replace its own bytes. Never throw away a working lower mip on OOM.
             let card = renderer.gpu_memory(scene);
-            let room = texture_restore_room(
-                self.texture_budget_bytes(),
-                self.video_memory_limit.load(std::sync::atomic::Ordering::Relaxed),
-                card,
-            );
-            let allowed = scene.texture_bytes_of(id).saturating_add(room);
-            let Some(upload) = fit_upgrade(&data, allowed) else { continue };
+            let room = if near {
+                card_restore_room(video_limit, card)
+            } else {
+                texture_restore_room(self.texture_budget_bytes(), usage, video_limit, card)
+            };
+            let before = scene.texture_bytes_of(id);
+            let Some(upload) = fit_upgrade(&data, before.saturating_add(room)) else { continue };
             let replaced = renderer.replace_texture(scene, id, &upload);
+            usage = (usage + scene.texture_bytes_of(id)).saturating_sub(before);
             if self.freetex_reloads.snapshot(id).is_some() {
                 self.freetex_reloads.remember(id, data.clone());
             }
@@ -879,10 +879,11 @@ impl World {
     /// Keep the textures within their budget, once a second (`force`: now, whatever was
     /// looked at last - the offscreen pictures): while they take
     /// more, the scenery textures only far tiles use lose their finest mip level, the
-    /// farthest first, down to 64 texels a side. If that is insufficient, nearby scenery,
-    /// roads and vehicle textures also give way, down to a 256-texel longest side. When
-    /// there is room again, scenery within 400 m of `centers` (the camera, the player's bus)
-    /// is read again on a worker and swapped back. Returns the textures
+    /// farthest first, down to 64 texels a side. If that is insufficient, nearby scenery and
+    /// roads also give way, down to a 256-texel longest side, and vehicle textures down to
+    /// 1024. Scenery shrunk while far that is within 150 m of `centers` (the camera, the
+    /// player's bus) comes back at once while the card has room; when there is room again,
+    /// the rest within 400 m is read again on a worker and swapped back. Returns the textures
     /// shrunk or sent to be read again.
     ///
     /// A look that found nothing to do is not repeated while the tiles, the bytes in use
@@ -950,10 +951,11 @@ impl World {
         let generation = self.tiles_generation.load(std::sync::atomic::Ordering::Relaxed);
         let states = self.tile_state.lock();
         let mut gpu = self.gpu.lock();
-        let (scenery_bytes, any_dropped) = gpu
-            .textures
-            .values()
-            .fold((0u64, false), |(b, d), e| (b + e.bytes, d || e.dropped > 0));
+        let last = memo.checked;
+        let (scenery_bytes, any_dropped, retry_due) = gpu.textures.values().fold((0u64, false, false), |(b, d, r), e| {
+            let due = e.retry_after.is_some_and(|t| t <= t0 && last.is_none_or(|c| t > c));
+            (b + e.bytes, d || e.dropped > 0, r || due)
+        });
         // Every texture of the scene counts against the card as well (the people, the
         // script and text textures, the sky's and the terrain's): past half of the card's own
         // memory, what they hold beyond it is taken from the scenery and the vehicles. The
@@ -974,6 +976,7 @@ impl World {
         const STEP: u64 = 32 << 20;
         let card_over = if card_cap > 0 { card.total().saturating_sub(card_cap) / STEP * STEP } else { 0 };
         let usage = if card_over > 0 { usage.max(limit.saturating_add(card_over)) } else { usage };
+        memo.in_use = usage;
         if pass == BudgetPass::AfterStreaming && usage <= limit && !memo.resume {
             // (the bytes are all a forced look is for: the restores wait for the second's)
             return 0;
@@ -983,7 +986,6 @@ impl World {
             memo.resume = false;
             return 0;
         }
-        let retry_due = gpu.textures.values().any(|e| e.retry_after.is_some_and(|t| t <= t0));
         if pass != BudgetPass::Now && !memo.resume && !retry_due && memo.unchanged(generation, usage, limit, centers) {
             return 0;
         }
@@ -1050,6 +1052,9 @@ impl World {
         // what it takes)
         let budget_end = std::time::Instant::now()
             + if pass == BudgetPass::Now { std::time::Duration::from_secs(3600) } else { std::time::Duration::from_millis(2) };
+        let pending = self.upgrades_pending.lock();
+        let reserved = if card_cap == 0 && usage > limit { 0 } else { reserved_restore_bytes(&gpu, &pending) };
+        restoring += queue_near_restores(&mut gpu, &pending, &entries, NEAR, card_restore_room(video_limit, card).saturating_sub(reserved), t0);
         if usage > limit {
             entries.sort_by(|a, b| b.0.total_cmp(&a.0));
             let mut over = usage - limit;
@@ -1077,7 +1082,6 @@ impl World {
                     continue;
                 }
                 let before = e.bytes;
-                // Free enough in this pass before asking nearby scenery to give way.
                 let n = budget_level_drop(w.min(h), levels, MIN_SIDE, before, over);
                 if renderer.drop_top_levels_in(&mut drops, scene, e.id, n) {
                     e.bytes = scene.texture_bytes_of(e.id);
@@ -1116,10 +1120,6 @@ impl World {
                     }
                 }
             }
-            // The near tiles and road textures used to be exempt, and the fleet stopped
-            // at 1024. On a small card that working set alone can exceed the whole budget.
-            // A coarser picture retains the building/tree's alpha shape; grey stand-ins
-            // cannot. Keep the normal distance policy first, then relax these floors.
             if over > 0 && shrunk.len() < 96 && !cut_short {
                 let mut emergency: Vec<(TextureId, Option<PathBuf>)> = entries.iter()
                     .filter_map(|(_, p)| gpu.textures.get(p).map(|e| (e.id, Some(p.clone()))))
@@ -1135,13 +1135,15 @@ impl World {
                     }
                     let Some((w, h, levels)) = renderer.texture_levels(scene, id) else { continue };
                     let before = scene.texture_bytes_of(id);
-                    let n = budget_level_drop(w.max(h), levels, 256, before, over);
+                    let floor = if path.is_some() { 256 } else { 1024 };
+                    let n = budget_level_drop(w.max(h), levels, floor, before, over);
                     if n > 0 && renderer.drop_top_levels_in(&mut drops, scene, id, n) {
                         let after = scene.texture_bytes_of(id);
                         over = over.saturating_sub(before.saturating_sub(after));
                         if let Some(e) = path.as_ref().and_then(|p| gpu.textures.get_mut(p)) {
                             e.bytes = after;
                             e.dropped += n;
+                            e.squeezed = true;
                         }
                         shrunk.push(id);
                     }
@@ -1154,16 +1156,7 @@ impl World {
             // before the textures have grown by that much (with a tenth, textures at
             // 150-400 m went back and forth as the tiles around came and went).
             entries.sort_by(|a, b| a.0.total_cmp(&b.0));
-            let mut room = texture_restore_room(limit, video_limit, card)
-                .min((limit - limit / 100 * 15).saturating_sub(usage));
-            let pending = self.upgrades_pending.lock();
-            // Reserve room for restores already on workers; otherwise each second spends
-            // the same headroom again before a slow decode finishes.
-            for (p, e) in &gpu.textures {
-                if pending.contains(p) || gpu.wants_restore.contains(p) {
-                    room = room.saturating_sub(texture_restore_cost(e));
-                }
-            }
+            let mut room = texture_restore_room(limit, usage, video_limit, card).saturating_sub(reserved);
             for (d, p) in &entries {
                 if *d > RESTORE || restoring >= 16 {
                     break;
@@ -1185,6 +1178,7 @@ impl World {
                 restoring += 1;
             }
         }
+        drop(pending);
         drop(gpu);
         // Nothing left to do for now: not looked at again before something changed. (A pass
         // that shrank or sent back textures changes the bytes in use, now or when they come
@@ -1453,6 +1447,7 @@ pub(super) struct BudgetMemo {
     usage: u64,
     limit: u64,
     centers: Vec<DVec3>,
+    in_use: u64,
 }
 
 impl BudgetMemo {
