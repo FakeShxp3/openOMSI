@@ -86,24 +86,25 @@ releases is still fetched at each start, so the launcher can protect you from a 
 computer, openOMSI tells it, through a local connection, that you are in the launcher or which map, bus, line and duty
 you are driving and whether you are in multiplayer. Discord may show this on your profile to other Discord users.
 Turn it off in the launcher: Settings, General, <em>Discord Rich Presence</em>.</p>
-<p><strong>Steam.</strong> On Windows and Linux, if the Steam client is running and you own OMSI 2 on Steam, openOMSI
+<p><strong>Steam.</strong> On Windows, macOS and Linux, if the Steam client is running and you own OMSI 2 on Steam, openOMSI
 connects to Steam as OMSI 2. Steam may then record and show that you are playing OMSI 2. openOMSI sends Steam no
 other information about your game.</p>
 
 <h3>Crash reports and diagnostics</h3>
 <p>Nothing is sent automatically when the game crashes. The crash window offers to copy a report or to open a new
 GitHub issue with the report filled in. A GitHub issue is <strong>public</strong>. The report contains the error,
-the last lines of the game log, your system, processor, memory and graphics card, and the command line the game was
+the last lines of the game log, your system, number of processor threads, memory and graphics card, and the command line the game was
 started with. That command line can include folder paths (which often contain your computer's user name), your
 multiplayer driver name and the session you joined, and the log lines can include multiplayer chat and network
 addresses. Read the report and remove anything you do not want to publish before you submit the issue.</p>
-<p>The launcher's diagnostics export makes a ZIP on your device. It contains only system and hardware details,
-controller names, the names of the maps and buses you used, and log events reduced to names and numbers. It is never
+<p>The launcher's support package (Settings, General, <em>Support package</em>) makes a ZIP on your device. It contains
+only system and hardware details (including device vendor and product identifiers), controller names, the names of
+the maps and buses you used, the number and size of installed archives, and log events reduced to names and numbers. It is never
 sent anywhere unless you attach it yourself.</p>
 
 <h3>Permissions on phones, tablets and Macs</h3>
 <p>openOMSI asks for the microphone (voice chat), motion sensors (tilt steering), the local network (finding and
-hosting multiplayer sessions) and, on Android, storage access (your OMSI 2 folder) and the permission to install
+hosting multiplayer sessions) and, on Android, storage access including access to all files (to read your OMSI 2 folder) and the permission to install
 updates. It does not use the camera, your location or your contacts. Microphone audio is used only for voice chat,
 which is off until you turn it on.</p>
 
@@ -131,16 +132,16 @@ A server can also choose to publish the names, buses and positions of the player
 <ul>
   <li>STUN servers from Google and Cloudflare, to learn your public address;</li>
   <li>your router, through UPnP, to open a port;</li>
-  <li>the public message relay ntfy.sh, where a session code's host and player addresses are posted to a topic named
-    after the session and kept by ntfy.sh for some hours; and</li>
+  <li>the public message relay ntfy.sh, where a session code's host and player addresses are posted to a topic derived
+    from a hash of the session code and kept by ntfy.sh for some hours; and</li>
   <li>Cloudflare tunnels (<code>trycloudflare.com</code>), through which session traffic passes. The tunnel program is
     downloaded from GitHub the first time you host.</li>
 </ul>
 <p><strong>Public server list.</strong> A server owner can choose to list their server in the project's public server
 list (a Cloudflare Worker). The list shows the server's name, message, map, player count, version and address. When
 the server has no tunnel, that address is the IP address the server registered from, and it is shown publicly. The
-list keeps only the server's information, in memory, and forgets a server 3 minutes after its last heartbeat. It
-keeps the sender's IP address only as a hash, for rate limiting.</p>
+list keeps only the server's information, in memory, and forgets a server 3 minutes after its last heartbeat.
+Separately, it keeps a hash of the sender's IP address for rate limiting.</p>
 <p>Other players and server operators therefore receive information needed for multiplayer. openOMSI cannot control
 how independently operated servers or other players handle it. Do not use your real name as your driver name if you
 do not want other players to see it.</p>
@@ -151,8 +152,8 @@ do not want other players to see it.</p>
   <li><strong>Real weather.</strong> When turned on, the game requests weather reports from aviationweather.gov for the
     station you pick. If you add a Tomorrow.io key, the game sends that key and the map's coordinates to Tomorrow.io.</li>
   <li><strong>Internet radio.</strong> When you turn on the bus radio, your device connects to the station's broadcaster.
-    The MileZero station, when you turn it on, also receives the song requests you type, and the title and artist of
-    the current song are looked up on Apple's iTunes search to show the cover.</li>
+    The MileZero station (<code>milezero.live</code>), when you turn it on, also receives the song requests you type, and
+    the title and artist of the current song are looked up on Apple's iTunes search to get its length.</li>
   <li><strong>Downloads.</strong> Mods, translation models, high-quality characters, ambient sound packs and other files you
     choose to download come from their hosts, such as GitHub or Hugging Face. On Windows, the WebView2 runtime is
     downloaded from Microsoft if it is missing.</li>
