@@ -228,7 +228,8 @@ impl FreeBuilt {
 
 #[derive(Clone)]
 pub struct FreeTex {
-    pub player_textures: Option<Arc<Mutex<hashbrown::HashSet<PathBuf>>>>,
+    pub(super) player_textures: Arc<Mutex<hashbrown::HashSet<PathBuf>>>,
+    pub(super) is_player: bool,
     /// Remote pixels override local path lookup, even before the first image arrives.
     pub remote: Option<Option<TextureId>>,
     pub remote_key: String,
@@ -248,6 +249,7 @@ pub struct FreeTex {
     /// File name (lower case) → the picture found for it (None: no such file, the slot
     /// keeps its own texture there).
     pub pictures: HashMap<String, Option<TextureId>>,
+    pub(super) spare: Vec<TextureId>,
     /// The name currently applied (lower case).
     pub current: Option<String>,
     /// The world's shared vehicle textures (a picture is one texture for every vehicle
@@ -823,7 +825,7 @@ impl World {
     pub(super) fn protect_player_textures(&self, set: &VehicleSet, render: &mut VehicleRender) {
         self.player_textures.lock().extend(set.textures.iter().cloned());
         for f in render.variants.iter_mut().flat_map(|v| &mut v.free) {
-            f.player_textures = Some(self.player_textures.clone());
+            f.is_player = true;
         }
     }
 }
