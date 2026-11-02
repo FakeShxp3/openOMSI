@@ -1,7 +1,7 @@
 //! A dense map loses detail uniformly, not everything drawn after the first full layer.
 //! Exact vertices are kept until the budget is exceeded. Then all triangles, old and new,
-//! are composited into a fixed grid covering the build's area. Rows of equal cells become
-//! quads; even a checkerboard fits the original vertex budget. No GPU or readback needed.
+//! are composited at the view's scale. Equal cells become rectangles; only a grid whose
+//! rectangles exceed the vertex budget is coarsened. No GPU or readback needed.
 
 use super::Vertex;
 use glam::Vec2;
@@ -48,7 +48,7 @@ impl GroundBudget {
         for t in exact.chunks_exact(3) {
             grid.triangle(t);
         }
-        exact.clear();
+        *exact = Vec::new();
         for t in vertices.chunks_exact(3) {
             grid.triangle(t);
         }
@@ -66,23 +66,38 @@ impl GroundBudget {
 }
 
 struct Grid {
+    limit: usize,
     side: usize,
     reach: f32,
     mpp: f32,
-    /// Linear, premultiplied RGBA; transparent cells have no ground to draw.
-    cells: Vec<[f32; 4]>,
+    /// sRGB, straight RGBA. Even a 4096-square build uses at most 64 MiB on the worker.
+    cells: Vec<[u8; 4]>,
     /// Land classes and road passes repeat one colour over many thousands of triangles.
-    last_color: Option<([[f32; 4]; 3], [f32; 4])>,
+    last_color: Option<([[f32; 4]; 3], [f32; 4], [u8; 4])>,
+}
+
+struct Rectangle {
+    left: usize,
+    right: usize,
+    top: usize,
+    bottom: usize,
+    color: [u8; 4],
 }
 
 impl Grid {
     fn new(limit: usize, reach: f32, mpp: f32) -> Self {
-        let side = ((limit / 6) as f64).sqrt().floor().clamp(1.0, 512.0) as usize;
+        let pixels = if mpp > 0.0 {
+            2.0 * reach / mpp
+        } else {
+            ((limit / 6) as f32).sqrt().min(512.0)
+        };
+        let side = (pixels.ceil().clamp(1.0, 4096.0) as usize).next_power_of_two();
         Self {
+            limit,
             side,
             reach,
             mpp,
-            cells: vec![[0.0; 4]; side * side],
+            cells: vec![[0; 4]; side * side],
             last_color: None,
         }
     }
@@ -115,12 +130,12 @@ impl Grid {
             .ceil()
             .clamp(0.0, self.side as f32) as usize;
         let key = [t[0].color, t[1].color, t[2].color];
-        let color = self
+        let (color, packed) = self
             .last_color
-            .filter(|(old, _)| *old == key)
-            .map(|(_, color)| color)
+            .filter(|(old, _, _)| *old == key)
+            .map(|(_, color, packed)| (color, packed))
             .unwrap_or_else(|| {
-                std::array::from_fn(|k| {
+                let color: [f32; 4] = std::array::from_fn(|k| {
                     t.iter()
                         .map(|v| {
                             if k == 3 {
@@ -131,9 +146,16 @@ impl Grid {
                         })
                         .sum::<f32>()
                         / 3.0
-                })
+                });
+                let premultiplied = [
+                    color[0] * color[3],
+                    color[1] * color[3],
+                    color[2] * color[3],
+                    color[3],
+                ];
+                (color, pack(premultiplied))
             });
-        self.last_color = Some((key, color));
+        self.last_color = Some((key, color, packed));
         // Conservative coverage keeps a narrow road even when no cell centre falls in it.
         // Clip each triangle to a row's slab before finding its x span, not its whole box.
         for y in low..high {
@@ -144,51 +166,134 @@ impl Grid {
             let b = b.ceil().clamp(0.0, self.side as f32) as usize;
             let cells = &mut self.cells[y * self.side + a..y * self.side + b];
             if color[3] == 1.0 {
-                cells.fill(color);
+                cells.fill(packed);
                 continue;
             }
             for dst in cells {
+                let mut blended = unpack(*dst);
                 for k in 0..3 {
-                    dst[k] = color[k] * color[3] + dst[k] * (1.0 - color[3]);
+                    blended[k] = color[k] * color[3] + blended[k] * (1.0 - color[3]);
                 }
-                dst[3] = color[3] + dst[3] * (1.0 - color[3]);
+                blended[3] = color[3] + blended[3] * (1.0 - color[3]);
+                *dst = pack(blended);
             }
         }
     }
 
-    fn vertices(self) -> Vec<Vertex> {
-        let mut out = Vec::new();
-        let coordinate = |i: usize| (2.0 * (i as f32 / self.side as f32) - 1.0) * self.reach;
+    fn rectangles(&self, mut visit: impl FnMut(Rectangle)) {
+        let mut active: Vec<Rectangle> = Vec::new();
+        let mut next = Vec::new();
         for y in 0..self.side {
+            let row = &self.cells[y * self.side..(y + 1) * self.side];
+            let mut previous = active.drain(..).peekable();
             let mut x = 0;
             while x < self.side {
-                let color = self.cells[y * self.side + x];
+                let color = row[x];
                 let first = x;
                 x += 1;
-                while x < self.side && self.cells[y * self.side + x] == color {
+                while x < self.side && row[x] == color {
                     x += 1;
                 }
-                if color[3] <= 0.0 {
+                if color[3] == 0 {
                     continue;
                 }
-                let color = [
-                    srgb(color[0] / color[3]),
-                    srgb(color[1] / color[3]),
-                    srgb(color[2] / color[3]),
-                    color[3],
-                ];
+                while previous.peek().is_some_and(|r| r.left < first) {
+                    visit(previous.next().unwrap());
+                }
+                if previous.peek().is_some_and(|r| r.left == first) {
+                    let mut rect = previous.next().unwrap();
+                    if rect.right == x && rect.color == color {
+                        rect.bottom = y + 1;
+                        next.push(rect);
+                        continue;
+                    }
+                    visit(rect);
+                }
+                next.push(Rectangle {
+                    left: first,
+                    right: x,
+                    top: y,
+                    bottom: y + 1,
+                    color,
+                });
+            }
+            previous.for_each(&mut visit);
+            std::mem::swap(&mut active, &mut next);
+        }
+        active.into_iter().for_each(visit);
+    }
+
+    fn coarsen(&mut self) {
+        let small = self.side / 2;
+        for y in 0..small {
+            for x in 0..small {
+                let mut color = [0.0; 4];
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let c = unpack(self.cells[(2 * y + dy) * self.side + 2 * x + dx]);
+                        for k in 0..4 {
+                            color[k] += c[k] * 0.25;
+                        }
+                    }
+                }
+                self.cells[y * small + x] = pack(color);
+            }
+        }
+        self.side = small;
+        self.cells.truncate(small * small);
+    }
+
+    fn vertices(mut self) -> Vec<Vertex> {
+        loop {
+            let mut count = 0;
+            self.rectangles(|_| count += 6);
+            if count > self.limit {
+                self.coarsen();
+                continue;
+            }
+            let mut out = Vec::with_capacity(count);
+            let coordinate = |i: usize| (2.0 * (i as f32 / self.side as f32) - 1.0) * self.reach;
+            self.rectangles(|r| {
                 let v = |x: usize, y: usize| Vertex {
                     pos: [coordinate(x), coordinate(y), 0.0],
-                    color,
+                    color: r.color.map(|c| c as f32 / 255.0),
                     mode: [1.0, 0.0],
                     ..Default::default()
                 };
-                let (a, b, c, d) = (v(first, y), v(x, y), v(x, y + 1), v(first, y + 1));
+                let (a, b, c, d) = (
+                    v(r.left, r.top),
+                    v(r.right, r.top),
+                    v(r.right, r.bottom),
+                    v(r.left, r.bottom),
+                );
                 out.extend([a, b, c, a, c, d]);
-            }
+            });
+            return out;
         }
-        out
     }
+}
+
+fn pack(c: [f32; 4]) -> [u8; 4] {
+    if c[3] <= 0.0 {
+        return [0; 4];
+    }
+    [
+        srgb(c[0] / c[3]),
+        srgb(c[1] / c[3]),
+        srgb(c[2] / c[3]),
+        c[3],
+    ]
+    .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+}
+
+fn unpack(c: [u8; 4]) -> [f32; 4] {
+    let c = c.map(|v| v as f32 / 255.0);
+    [
+        linear(c[0]) * c[3],
+        linear(c[1]) * c[3],
+        linear(c[2]) * c[3],
+        c[3],
+    ]
 }
 
 /// The x extent of a triangle intersecting the horizontal strip [low, high].
