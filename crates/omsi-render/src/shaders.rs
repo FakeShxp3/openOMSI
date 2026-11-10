@@ -32,6 +32,7 @@ pub(crate) const ENHANCED: &str = concat!(
     include_str!("shaders/enhanced/01_brdf_shadow.wgsl"),
     include_str!("shaders/enhanced/02_lamps.wgsl"),
     include_str!("shaders/enhanced/03_surface.wgsl"),
+    include_str!("shaders/enhanced/07_cabin_glare.wgsl"),
     include_str!("shaders/enhanced/04_shade.wgsl"),
     include_str!("shaders/enhanced/05_puddles.wgsl"),
     include_str!("shaders/enhanced/06_ground.wgsl"),
@@ -130,13 +131,13 @@ mod tests {
     /// Omsi.exe's encoded mix, and the vertex-lit Direct3D headlight excluding its own vehicle,
     /// and the traced sample read once for FXC, the road glare in its own uniform lane,
     /// and the detail grain's octaves left out where faded, and the instance's parameters
-    /// handed to the fragments flat (#1488), no lamp glint on a face seen from behind, no sun glint on a face seen from behind (#3359), and an unswitched night map's gain capped (#3362).
+    /// handed to the fragments flat (#1488), no lamp glint on a face seen from behind, no sun glint on a face seen from behind (#3359), an unswitched night map's gain capped (#3362), and nearby cabin fixtures reflected in the player's panes.
     /// (with Unix line ends: a Windows checkout may turn the parts' into CRLF, as it did the
     /// single files', and the 0.2.31 release's Windows test failed on that alone)
     #[test]
     fn assembled_shaders_are_the_old_files() {
         let (scene, enhanced) = (super::SCENE.replace("\r\n", "\n"), super::ENHANCED.replace("\r\n", "\n"));
-        assert_eq!((scene.len(), fnv1a(&scene)), (141067, 16582456829263248557));
-        assert_eq!((enhanced.len(), fnv1a(&enhanced)), (99366, 11134015870607419208));
+        assert_eq!((scene.len(), fnv1a(&scene)), (141177, 11093192082718548278));
+        assert_eq!((enhanced.len(), fnv1a(&enhanced)), (101754, 8214398277946299561));
     }
 }

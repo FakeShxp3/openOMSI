@@ -86,6 +86,9 @@ pub(crate) struct CameraUniform {
     /// (Every shader's copy of this struct carries it, read or not - see the test
     /// `shaders_validate_and_match_the_uniforms`.)
     pub(crate) spot: [[f32; 4]; 4],
+    /// Nearby cabin fixtures reflected by the player panes; independent of shadow tiles.
+    /// Eight light-buffer indices, padded with -1.
+    pub(crate) glare_lamps: [[f32; 4]; 2],
 }
 
 /// The period the sky's cloud patterns repeat with (m): 5 x the cloud field (14 km), 8 x

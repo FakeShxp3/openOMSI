@@ -1166,6 +1166,10 @@ impl World {
             it_extra.no_z_write |= extra.no_z_write;
             it_extra.no_z_check |= extra.no_z_check;
             it_extra.glass |= extra.glass;
+            // Items inherit the base fade unless they name their own script variable.
+            it_extra.daylight_glass = extra.daylight_glass && ov_item.iter()
+                .find_map(|o| o.alphascale.as_deref())
+                .is_none_or(|v| v.trim().eq_ignore_ascii_case("Envir_Brightness"));
             if repair_body_depth {
                 it_extra.no_z_check = false;
             }
@@ -1501,6 +1505,8 @@ fn slot_extra(
         && alpha == AlphaMode::Blend
         && !dirt_overlay
         && !rain_layer;
+    // Only a real pane may retain its lamp reflection when daylight fades its tint.
+    extra.daylight_glass &= (extra.glass || see_through) && !dirt_overlay && !rain_layer;
     // (while it snows the film is the snow-crystal texture, drawn as it is)
     // (all three graphics: OMSI 2's own rain, its texture sliding down the
     // pane, looked like wet paper next to drops that bend the street)

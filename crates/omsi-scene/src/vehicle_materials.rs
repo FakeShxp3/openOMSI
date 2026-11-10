@@ -176,6 +176,8 @@ pub(super) fn material_extra(
         specular,
         bump: bump.filter(|b| b.1.is_finite() && b.1 != 0.0),
         glass: false,
+        daylight_glass: ov.iter().find_map(|o| o.alphascale.as_deref())
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("Envir_Brightness")),
         night_switched: false,
         night_alpha: false,
         rain_film: false,

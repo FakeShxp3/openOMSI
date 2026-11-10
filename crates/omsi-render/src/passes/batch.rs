@@ -291,7 +291,7 @@ fn opaque_items_parts(pool: Option<&rayon::ThreadPool>, scene: &Scene, visible: 
 
 /// A phase's blended draws, in the order of `blended_order`, into `items`; the vehicle
 /// the camera is in into `cab_items`.
-fn blended_items(scene: &Scene, keyed: Vec<(u8, f32, usize)>, exclude_texture: Option<TextureId>, items: &mut Vec<DrawItem>, cab_items: &mut Vec<DrawItem>) {
+fn blended_items(scene: &Scene, keyed: Vec<(u8, f32, usize)>, exclude_texture: Option<TextureId>, cabin_glare: bool, items: &mut Vec<DrawItem>, cab_items: &mut Vec<DrawItem>) {
     for (rank, _, i) in keyed {
         let inst = &scene.instances[i];
         let cull = culls_back_faces(scene, inst);
@@ -308,7 +308,11 @@ fn blended_items(scene: &Scene, keyed: Vec<(u8, f32, usize)>, exclude_texture: O
             // original, whose blend takes it out whole; drawn anyway it ran the full
             // shading over the whole windscreen for nothing - a bus's cab view had
             // three or four such screen-sized layers.
-            if mat.alpha == AlphaMode::Blend && inst.slot_alpha.get(*slot as usize).is_some_and(|a| *a < 1.0 / 512.0) {
+            // Only the player's daylight-faded pane stays for a lit cabin fixture;
+            // its tint remains faded and the shader adds light at the reflection alone.
+            if mat.alpha == AlphaMode::Blend && inst.slot_alpha.get(*slot as usize).is_some_and(|a| *a < 1.0 / 512.0)
+                && !(cabin_glare && rank == 2 && mat.uniform.glow[2] > 0.5)
+            {
                 continue;
             }
             // Ground blends use the C++ handler's no-write composition;
@@ -376,6 +380,9 @@ impl Renderer {
         let mut masked = None;
         let mut msaa_safe_batches = Vec::new();
         let deferred = has_presurface && f.enhanced;
+        let cabin_glare = f.enhanced && cabin_glare_lamps(
+            &scene.interior_lights, f.camera.position, f.lighting.inside.as_ref(),
+        )[0][0] >= 0.0;
         let pool = self.encoding_pool.as_ref();
         let prepass_job = || { prepass_items(pool, scene, visible, deferred, f.prepass_reach) };
         // The main pass follows the authored world phases. Each phase keeps its
@@ -463,7 +470,7 @@ impl Renderer {
                 let visible = if phase == RenderPhase::AfterVehicles { &late_visible[..] } else { &visible[..] };
                 let keyed = self.blended_order(scene, f, visible, &blended);
                 items.clear();
-                blended_items(scene, keyed, exclude_texture, &mut items, &mut cab_items);
+                blended_items(scene, keyed, exclude_texture, cabin_glare, &mut items, &mut cab_items);
                 main_draws[1] += items.len();
                 batch_items(scene, &mut items, false, list, &mut main_batches);
                 if phase == RenderPhase::Terrain {

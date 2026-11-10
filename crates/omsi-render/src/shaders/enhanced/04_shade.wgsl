@@ -919,7 +919,17 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // (a pane passes most light: a reflection making it up to 60 % opaque laid a grey
         // veil over the destination display behind the windscreen and the saloon)
         var a2 = clamp(alpha + (1.0 - alpha) * clamp(rl * 0.25 + fr.g, 0.0, 0.25) * (1.0 - 0.85 * own_pane) * cover, alpha, 1.0);
-        var c = (rgb * alpha + refl_rgb) / max(a2, 1e-3);
+        var glare = vec3<f32>(0.0);
+        if (own_pane > 0.0 && !capture && camera.glare_lamps[0].x >= 0.0) {
+            // A daylight-faded reflection layer still has glass at night. Preserve
+            // its texture's holes, and leave rain/dirt and other script fades alone.
+            let coverage = select(alpha, tex.a * material.color.a, material.glow.z > 0.5);
+            glare = cabin_glare(in.world, n, v) * own_pane * smoothstep(0.0, 0.05, coverage);
+            // The blend needs nonzero alpha to carry additive light even on a faded
+            // pane. Coverage grows only at a glint, never over the whole windscreen.
+            a2 = max(a2, min(max(glare.r, max(glare.g, glare.b)), 0.02));
+        }
+        var c = (rgb * alpha + refl_rgb + glare) / max(a2, 1e-3);
         // the condensation on the player's bus's panes (omsi-app condensation.rs): a film of
         // droplets, each many wavelengths wide, takes twice its shadow out of the light
         // (the extinction paradox): half of what it scatters is diffracted a degree or two

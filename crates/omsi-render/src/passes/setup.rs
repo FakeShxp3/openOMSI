@@ -471,6 +471,11 @@ impl Renderer {
             // y belongs to the ground prepass and is set only by render_inner.
             lod: [self.fsr_mip_bias(f), 0.0, lighting.road_glare.clamp(0.0, 2.0), 0.0],
             spot: classic_spot(&scene.lights, ro),
+            glare_lamps: if enhanced {
+                cabin_glare_lamps(&scene.interior_lights, camera.position, lighting.inside.as_ref())
+            } else {
+                [[-1.0; 4]; 2]
+            },
         };
         self.queue
             .write_buffer(&self.camera_buf, 0, bytemuck::bytes_of(&cu));
